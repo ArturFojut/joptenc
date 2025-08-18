@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "xCommonDefPMBB-BASE.h"
+#include "xCommonDefBASE.h"
 #include <vector>
 
 namespace PMBB_BASE {
@@ -18,7 +18,7 @@ class xProcInfo
 {
 public:
 
-  enum class eExt
+  enum class eFeat
   {
     //Intel
     //x87
@@ -56,6 +56,8 @@ public:
     //Nehalem - 2008
     SSE4_2            ,
     POPCNT            ,
+    XSAVE             ,
+    OSXSAVE           ,
     //Westmere               
     AES               , //EAS encryption accelerator 
     CLMUL             , //Carry-less Multiplication
@@ -101,28 +103,39 @@ public:
     AVX512_4VNNIW     , //4-register Neural Network Instructions / Vector Neural Network Instructions Word variable precision
     AVX512_4FMAPS     , //4-register Multiply Accumulation Single precision
     //Sunny Cove (Ice Lake)
-    CLWB              , //Cache Line Write Back
-    RDPID             , //Read Processor ID
-    AVX512_VNNI       , //Vector Neural Network Instructions
-    AVX512_VBMI2      , //Vector Byte Manipulation Instructions 2
-    AVX512_BITALG     , //Support for VPOPCNT[B,W] and VPSHUF-BITQMB
-    AVX512_VPOPCNTDQ  , //Vector POPCNT
-    VPCLMULQDQ        , //Carry-Less Multiplication Quadword
-    VAES              , //Vector AES
-    GFNI              , //Galois Field New Instructions
-    //Willow Cove (Tiger Lake)
+    CLWB               , //Cache Line Write Back
+    RDPID              , //Read Processor ID
+    AVX512_VNNI        , //Vector Neural Network Instructions
+    AVX512_VBMI2       , //Vector Byte Manipulation Instructions 2
+    AVX512_BITALG      , //Support for VPOPCNT[B,W] and VPSHUF-BITQMB
+    AVX512_VPOPCNTDQ   , //Vector POPCNT
     AVX512_VP2INTERSECT,
+    VPCLMULQDQ         , //Carry-Less Multiplication Quadword
+    VAES               , //Vector AES
+    GFNI               , //Galois Field New Instructions
+    //Willow Cove (Tiger Lake)
+    
+    AVX_IFMA          ,
     //Willow Cove (Sapphire Rapids)
     AVX512_BF16       ,
     AVX512_FP16       ,
     AMX_BF16          ,
     AMX_TILE          ,
     AMX_INT8          ,
-    //Golden Cove
+    //Golden Cove (Alder Lake)
+    AVX_VNNI          ,
     HYBRID            ,
+    //Crestmont (Sierra Forest)
+    AVX_VNNI_INT8     ,
+    //Lion Cove/Skymont (Arrow Lake/Lunar Lake)
+    AVX_NE_CONVERT    ,
+    AVX_VNNI_INT16    ,
     //???
-
-
+    AVX10             ,
+    AVX10_128         ,
+    AVX10_256         ,
+    AVX10_512         ,
+   
     //AMD
     //Chompers
     MMX_3DNow         ,
@@ -136,44 +149,38 @@ public:
     //Piledriver           
     TBM               ,
 
+    //ECR0
+    ECR0_X87          , //x87 FPU/MMX support (must be 1) 
+    ECR0_SSE          , //XSAVE support for MXCSR and XMM registers 
+    ECR0_AVX          , //AVX enabled and XSAVE support for upper halves of YMM registers 
+    ECR0_Opmask       , //AVX-512 enabled and XSAVE support for opmask registers k0-k7 
+    ECR0_ZMM_Hi256    , //AVX-512 enabled and XSAVE support for upper halves of lower ZMM registers
+    ECR0_Hi16_ZMM     , //AVX-512 enabled and XSAVE support for upper ZMM registers 
+
     //TYPE
-    NUM_OF_EXTS
+    NUM_OF_FEATURES
   };
 
-  class xExts
+  class xFeats
   {
   protected:
-    std::vector<bool> m_Exts = std::vector<bool>((int32_t)(eExt::NUM_OF_EXTS), false);
+    std::vector<bool> m_Exts = std::vector<bool>((int32_t)(eFeat::NUM_OF_FEATURES), false);
 
   public:
-    inline void setExt(eExt Ext, bool Val) { m_Exts[(int32_t)Ext] = Val; }
-    inline bool hasExt(eExt Ext) const { return m_Exts[(int32_t)Ext]; }
+    inline void set(eFeat Feature, bool Val)       { m_Exts[(int32_t)Feature] = Val; }
+    inline bool has(eFeat Feature          ) const { return m_Exts[(int32_t)Feature]; }
 
-    inline bool hasSSEx() const { return hasExt(eExt::SSE1) && hasExt(eExt::SSE2) && hasExt(eExt::SSE3) && hasExt(eExt::SSSE3) && hasExt(eExt::SSE4_1) && hasExt(eExt::SSE4_2); }
-    inline bool hasAVX1() const { return hasSSEx() && hasExt(eExt::AVX1); }
-    inline bool hasAVX2() const { return hasAVX1() && hasExt(eExt::AVX2); }
-    inline bool hasFMA () const { return hasAVX2() && hasExt(eExt::FMA3); }
+    inline bool hasSSEx() const { return has(eFeat::SSE1) && has(eFeat::SSE2) && has(eFeat::SSE3) && has(eFeat::SSSE3) && has(eFeat::SSE4_1) && has(eFeat::SSE4_2); }
+    inline bool hasAVX1() const { return hasSSEx() && has(eFeat::AVX1); }
+    inline bool hasAVX2() const { return hasAVX1() && has(eFeat::AVX2); }
+    inline bool hasFMA () const { return hasAVX2() && has(eFeat::FMA3); }
 
-    inline bool matchesAMD64v1() const { return hasExt(eExt::CMOV) && hasExt(eExt::CMPXCHG8B) && hasExt(eExt::FPU) && hasExt(eExt::FXRS) && hasExt(eExt::MMX) && hasExt(eExt::SSE1) && hasExt(eExt::SSE2); }
-    inline bool matchesAMD64v2() const { return hasExt(eExt::CMPXCHG16B) && hasExt(eExt::LAHF_SAHF) && hasExt(eExt::POPCNT) && hasExt(eExt::SSE3) && hasExt(eExt::SSSE3) && hasExt(eExt::SSE4_1) && hasExt(eExt::SSE4_2); }
-    inline bool matchesAMD64v3() const { return hasExt(eExt::AVX1) && hasExt(eExt::AVX2) && hasExt(eExt::BMI1) && hasExt(eExt::BMI2) && hasExt(eExt::FP16C) && hasExt(eExt::FMA3) && hasExt(eExt::LZCNT) && hasExt(eExt::MOVBE); }
-    inline bool matchesAMD64v4() const { return hasExt(eExt::AVX512F) && hasExt(eExt::AVX512BW) && hasExt(eExt::AVX512CD) && hasExt(eExt::AVX512DQ) && hasExt(eExt::AVX512VL); }
+    inline bool matchesAMD64v1() const { return has(eFeat::CMOV) && has(eFeat::CMPXCHG8B) && has(eFeat::FPU) && has(eFeat::FXRS) && has(eFeat::MMX) && has(eFeat::SSE1) && has(eFeat::SSE2); }
+    inline bool matchesAMD64v2() const { return has(eFeat::CMPXCHG16B) && has(eFeat::LAHF_SAHF) && has(eFeat::POPCNT) && has(eFeat::SSE3) && has(eFeat::SSSE3) && has(eFeat::SSE4_1) && has(eFeat::SSE4_2); }
+    inline bool matchesAMD64v3() const { return has(eFeat::AVX1) && has(eFeat::AVX2) && has(eFeat::BMI1) && has(eFeat::BMI2) && has(eFeat::FP16C) && has(eFeat::FMA3) && has(eFeat::LZCNT) && has(eFeat::MOVBE); }
+    inline bool matchesAMD64v4() const { return has(eFeat::AVX512F) && has(eFeat::AVX512BW) && has(eFeat::AVX512CD) && has(eFeat::AVX512DQ) && has(eFeat::AVX512VL); }
 
-    static std::string eExtToName(eExt Ext);
-  };
-
-  class xMem
-  {
-  protected:
-    int32_t m_CacheLineSize  = 0;
-    int32_t m_MemoryPageSize = 0;
-
-  public:
-    void setCacheLineSize (int32_t CacheLineSize ) { m_CacheLineSize  = CacheLineSize ; }
-    void setMemoryPageSize(int32_t MemoryPageSize) { m_MemoryPageSize = MemoryPageSize; }
-
-    int32_t getCacheLineSize () const { return m_CacheLineSize ; }
-    int32_t getMemoryPageSize() const { return m_MemoryPageSize; }
+    static std::string eFeatToName(eFeat Ext);
   };
 
 public:
@@ -189,12 +196,12 @@ public:
   };
 
 protected:
-  bool  m_ExtsChecked = false;
-  bool  m_MemChecked  = false;
-  char  m_VendorID[13] = { 0 };
-  xExts m_Exts; 
-  xMem  m_Mem;
-  bool  m_OSAVX = false; //OS level AVX support OSXSAVE
+  bool   m_ProcInfoChecked = false;
+  char   m_ManufacturerID[13] = { 0 };
+  char   m_BrandString   [49] = { 0 };
+  xFeats m_Feats;
+  bool   m_OSAVX = false; //OS level AVX support OSXSAVE
+  flt64  m_TSC_Frequency = 0;
 
 public:
   void        detectSysInfo();
@@ -202,30 +209,32 @@ public:
   eMFL        determineMicroArchFeatureLevel();
 
 public:
-  const xExts& getExts() const { return m_Exts; }
+  const xFeats& getExts() const { return m_Feats; }
 
-  inline bool hasSSEx() const { return m_Exts.hasSSEx()           ; }
-  inline bool hasAVX1() const { return m_Exts.hasAVX1() && m_OSAVX; }
-  inline bool hasAVX2() const { return m_Exts.hasAVX2() && m_OSAVX; }
-  inline bool hasFMA () const { return m_Exts.hasFMA () && m_OSAVX; }
+  inline bool hasSSEx() const { return m_Feats.hasSSEx()           ; }
+  inline bool hasAVX1() const { return m_Feats.hasAVX1() && m_OSAVX; }
+  inline bool hasAVX2() const { return m_Feats.hasAVX2() && m_OSAVX; }
+  inline bool hasFMA () const { return m_Feats.hasFMA () && m_OSAVX; }
 
-  inline bool matchesAMD64v1() const { return m_Exts.matchesAMD64v1()           ; }
-  inline bool matchesAMD64v2() const { return m_Exts.matchesAMD64v2()           ; }
-  inline bool matchesAMD64v3() const { return m_Exts.matchesAMD64v3() && m_OSAVX; }
-  inline bool matchesAMD64v4() const { return m_Exts.matchesAMD64v4() && m_OSAVX; }
+  inline bool matchesAMD64v1() const { return m_Feats.matchesAMD64v1()           ; }
+  inline bool matchesAMD64v2() const { return m_Feats.matchesAMD64v2()           ; }
+  inline bool matchesAMD64v3() const { return m_Feats.matchesAMD64v3() && m_OSAVX; }
+  inline bool matchesAMD64v4() const { return m_Feats.matchesAMD64v4() && m_OSAVX; }
 
   static eMFL        xStrToMfl(const std::string_view Mfl);
   static std::string xMflToStr(eMFL Mfl);
 
 protected:  
-  static std::string xFormatProcExts(const xExts& Exts);
-  static std::string xFormatMemInfo (const xMem&  Mem );
+  std::string xFormatProcInfo () const;
+  std::string xFormatProcFeats() const;
+  static std::string xFormatMemInfo();
   
-  void xDetectExts();
-  void xDetectMem ();
-
-  static xExts xDetectProcExts(uint32_t HighestFunctionSupported);
-  static bool  xDetectOSAVX   ();
+  void xDetectProcInfo();
+#if defined(X_PMBB_ARCH_AMD64)
+  void xDetectCPUID();
+  void xDetectMSR0 ();
+  void xDetectOSAVX();
+#endif //X_PMBB_ARCH_AMD64
 };
 
 //=============================================================================================================================================================================

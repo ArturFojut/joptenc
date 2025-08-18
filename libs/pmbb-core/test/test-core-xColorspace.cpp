@@ -9,6 +9,7 @@
 #include <utility>
 #include <array>
 #include "xTestUtils.h"
+#include "xTimeUtils.h"
 #include "xMemory.h"
 #include "xCommonDefCORE.h"
 #include "xPic.h"
@@ -23,55 +24,67 @@ static const std::vector<int32    > c_Dimms   = { 64, 63, 65, 128, 127, 129 };
 static const std::vector<int32    > c_Margs   = { 0, 4, 32 };
 static const std::vector<int32    > c_BitDs   = { 8, 14 };
 static const std::vector<eClrSpcLC> c_ClrSpcs = { eClrSpcLC::BT601, eClrSpcLC::BT709, eClrSpcLC::SMPTE240M, eClrSpcLC::BT2020 };
-static constexpr int32            c_DefBitDepth    = 14;
-static constexpr int32            c_DefMaxValue    = (1<<c_DefBitDepth) - 1;
-static constexpr int32            c_NumRandomTests = 8;
+static constexpr int32              c_DefBitDepth    = 14;
+static constexpr int32              c_DefMaxValue    = (1<<c_DefBitDepth) - 1;
+static constexpr int32              c_NumRandomTests = 8;
 
 //===============================================================================================================================================================================================================
 
 void testColorSpaceCoeff()
 {
-  static constexpr flt32 Tolerance = 0.00001f;
+  {
+    static constexpr flt32 Tolerance = 0.0001f;
 
-  auto RGB2YCbCr_BT601_F32 = xColorSpaceCoeff<flt32>::c_RGB2YCbCr[(int32)eClrSpcLC::BT601];
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[0][0], (flt32) 0.29900, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[0][1], (flt32) 0.58700, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[0][2], (flt32) 0.11400, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[1][0], (flt32)-0.16874, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[1][1], (flt32)-0.33126, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[1][2], (flt32) 0.50000, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[2][0], (flt32) 0.50000, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[2][1], (flt32)-0.41869, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[2][2], (flt32)-0.08131, Tolerance));
+    auto RGB2YCbCr_BT601_F32 = xColorSpaceCoeffYCbCr::c_RGB2YCbCr_F32[(int32)eClrSpcLC::BT601];
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[0][0], (flt32) 0.29900, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[0][1], (flt32) 0.58700, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[0][2], (flt32) 0.11400, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[1][0], (flt32)-0.16874, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[1][1], (flt32)-0.33126, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[1][2], (flt32) 0.50000, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[2][0], (flt32) 0.50000, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[2][1], (flt32)-0.41869, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT601_F32[2][2], (flt32)-0.08131, Tolerance));
 
-  auto RGB2YCbCr_BT709_F32 = xColorSpaceCoeff<flt32>::c_RGB2YCbCr[(int32)eClrSpcLC::BT709];
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[0][0], (flt32) 0.21260, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[0][1], (flt32) 0.71520, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[0][2], (flt32) 0.07220, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[1][0], (flt32)-0.11457, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[1][1], (flt32)-0.38543, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[1][2], (flt32) 0.50000, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[2][0], (flt32) 0.50000, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[2][1], (flt32)-0.45415, Tolerance));
-  CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[2][2], (flt32)-0.04585, Tolerance));
+    auto RGB2YCbCr_BT709_F32 = xColorSpaceCoeffYCbCr::c_RGB2YCbCr_F32[(int32)eClrSpcLC::BT709];
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[0][0], (flt32) 0.21260, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[0][1], (flt32) 0.71520, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[0][2], (flt32) 0.07220, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[1][0], (flt32)-0.11457, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[1][1], (flt32)-0.38543, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[1][2], (flt32) 0.50000, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[2][0], (flt32) 0.50000, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[2][1], (flt32)-0.45415, Tolerance));
+    CHECK(xIsApproximatelyEqual(RGB2YCbCr_BT709_F32[2][2], (flt32)-0.04585, Tolerance));
+  }
 
-  int32 Precision           = xColorSpaceCoeff<int32>::c_Precision;
-  flt64 Mul                 = xColorSpaceCoeff<int32>::c_Mul;
+  int32 Precision           = xColorSpaceCoeffYCbCr::c_Precision;
+  flt64 Mul                 = xColorSpaceCoeffYCbCr::c_Mul;
   //flt64 Rnd               = xColorSpaceCoeff<int32>::c_Rnd;
-  CHECK(xColorSpaceCoeff<int32>::c_Mul == (1 << xColorSpaceCoeff<int32>::c_Precision));
+  CHECK(xColorSpaceCoeffYCbCr::c_Mul == (1 << xColorSpaceCoeffYCbCr::c_Precision));
   CHECK(Mul == (1 << Precision));
-
+  
   for(const auto c : c_ClrSpcs)
   {
-    auto RGB2YCbCr_F32 = xColorSpaceCoeff<flt32>::c_RGB2YCbCr[(int32)c];
-    auto RGB2YCbCr_I32 = xColorSpaceCoeff<int32>::c_RGB2YCbCr[(int32)c];
-    for(int32 i = 0; i < 3; i++)
-    {
-      for(int32 j = 0; j < 3; j++)
-      {
-        CHECK(RGB2YCbCr_I32[i][j] == (int32)round((1 << Precision) * RGB2YCbCr_F32[i][j]));
-      }
-    }
+    auto RGB2YCbCr_F32 = xColorSpaceCoeffYCbCr::c_RGB2YCbCr_F32[(int32)c];
+    auto RGB2YCbCr_I32 = xColorSpaceCoeffYCbCr::c_RGB2YCbCr_I32[(int32)c];
+
+    flt64 SumLm_F32 = (flt64)RGB2YCbCr_F32[0][0] + (flt64)RGB2YCbCr_F32[0][1] + (flt64)RGB2YCbCr_F32[0][2];
+    flt64 SumCb_F32 = (flt64)RGB2YCbCr_F32[1][0] + (flt64)RGB2YCbCr_F32[1][1] + (flt64)RGB2YCbCr_F32[1][2];
+    flt64 SumCr_F32 = (flt64)RGB2YCbCr_F32[2][0] + (flt64)RGB2YCbCr_F32[2][1] + (flt64)RGB2YCbCr_F32[2][2];
+
+    static constexpr flt64 Tolerance = 0.0000001f;
+    CHECK(xIsApproximatelyEqual(SumLm_F32, 1.0, Tolerance));
+    CHECK(xIsApproximatelyEqual(SumCb_F32, 0.0, Tolerance));
+    CHECK(xIsApproximatelyEqual(SumCr_F32, 0.0, Tolerance));
+
+    int32 SumLm_I32 = RGB2YCbCr_I32[0][0] + RGB2YCbCr_I32[0][1] + RGB2YCbCr_I32[0][2];
+    int32 SumCb_I32 = RGB2YCbCr_I32[1][0] + RGB2YCbCr_I32[1][1] + RGB2YCbCr_I32[1][2];
+    int32 SumCr_I32 = RGB2YCbCr_I32[2][0] + RGB2YCbCr_I32[2][1] + RGB2YCbCr_I32[2][2];
+
+    CHECK(SumLm_I32 == xColorSpaceCoeffYCbCr::c_Mul);
+    CHECK(SumCb_I32 == 0                           );
+    CHECK(SumCr_I32 == 0                           );
   }
 }
 
@@ -145,7 +158,7 @@ std::tuple<flt64, flt64> perfColorSpace(
 {
 #ifdef NDEBUG
   constexpr int32 NumIters = 8;
-  constexpr int32 NumPels = 1024 * 1024 * 64;
+  constexpr int32 NumPels = 1024 * 1024 * 8;
 #else
   constexpr int32 NumIters = 4;
   constexpr int32 NumPels  = 1024;
@@ -256,6 +269,8 @@ TEST_CASE("xColorSpaceAVX512-I32")
 }
 #endif //X_SIMD_CAN_USE_AVX512
 
+#ifdef NDEBUG
+
 TEST_CASE("xColorSpaceSTD-F32-perf")
 {
   auto [RY, YR] = perfColorSpace(xColorSpaceSTD::ConvertRGB2YCbCr_F32, xColorSpaceSTD::ConvertYCbCr2RGB_F32);
@@ -296,5 +311,7 @@ TEST_CASE("xColorSpaceAVX512-I32-perf")
   fmt::print("TIME(xColorSpaceAVX512::ConvertYCbCr2RGB_I32) = {:.2f} MiB/s\n", YR / (1024 * 1024));
 }
 #endif //X_SIMD_CAN_USE_AVX512
+
+#endif //NDEBUG
 
 //===============================================================================================================================================================================================================

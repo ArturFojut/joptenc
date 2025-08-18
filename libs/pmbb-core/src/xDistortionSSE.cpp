@@ -14,7 +14,7 @@ namespace PMBB_NAMESPACE {
 int32 xDistortionSSE::CalcSD(const uint16* restrict Tst, const uint16* restrict Ref, int32 Area)
 {  
   //up to 14 bit input
-  const int32 Area8   = (int32)((uint32)Area & c_MultipleMask8);
+  const int32 Area8   = (int32)((uint32)Area & c_MultipleMask8<uint32>);
   __m128i     SD_V128 = _mm_setzero_si128();
 
   for(int32 i = 0; i < Area8; i += 8)
@@ -39,7 +39,7 @@ int32 xDistortionSSE::CalcSD(const uint16* restrict Tst, const uint16* restrict 
   //up to 14 bit input
   __m128i SD_V128 = _mm_setzero_si128();
   
-  if(((uint32)Width & c_RemainderMask8)==0) //Width%8==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask8<uint32>)==0) //Width%8==0 - fast path without tail
   {
     for(int32 y=0; y<Height; y++)
     {
@@ -63,8 +63,8 @@ int32 xDistortionSSE::CalcSD(const uint16* restrict Tst, const uint16* restrict 
   }
   else //any other
   {
-    const int32 Width8 = (int32)((uint32)Width & c_MultipleMask8);
-    const int32 Width4 = (int32)((uint32)Width & c_MultipleMask4);
+    const int32 Width8 = (int32)((uint32)Width & c_MultipleMask8<uint32>);
+    const int32 Width4 = (int32)((uint32)Width & c_MultipleMask4<uint32>);
     int32 SD = 0;
 
     for(int32 y=0; y<Height; y++)
@@ -102,7 +102,7 @@ int32 xDistortionSSE::CalcSD(const uint16* restrict Tst, const uint16* restrict 
 }
 uint32 xDistortionSSE::CalcSAD(const uint16* restrict Tst, const uint16* restrict Ref, int32 Area)
 {
-  const int32 Area8        = (int32)((uint32)Area & c_MultipleMask8);
+  const int32 Area8        = (int32)((uint32)Area & c_MultipleMask8<uint32>);
   __m128i     SAD_I32_V128 = _mm_setzero_si128();
 
   for(int32 i = 0; i < Area8; i += 8)
@@ -127,7 +127,7 @@ uint32 xDistortionSSE::CalcSAD(const uint16* restrict Tst, const uint16* restric
 {
   __m128i SAD_I32_V128 = _mm_setzero_si128();
 
-  if(((uint32)Width & c_RemainderMask8)==0) //Width%8==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask8<uint32>)==0) //Width%8==0 - fast path without tail
   {
     for(int32 y=0; y<Height; y++)
     {
@@ -152,8 +152,8 @@ uint32 xDistortionSSE::CalcSAD(const uint16* restrict Tst, const uint16* restric
   }
   else //any other
   {
-    const int32 Width8 = (int32)((uint32)Width & c_MultipleMask8);
-    const int32 Width4 = (int32)((uint32)Width & c_MultipleMask4);
+    const int32 Width8 = (int32)((uint32)Width & c_MultipleMask8<uint32>);
+    const int32 Width4 = (int32)((uint32)Width & c_MultipleMask4<uint32>);
     int32 SAD = 0;
 
     for(int32 y=0; y<Height; y++)
@@ -194,7 +194,7 @@ uint32 xDistortionSSE::CalcSAD(const uint16* restrict Tst, const uint16* restric
 uint64 xDistortionSSE::CalcSSD(const uint16* restrict Tst, const uint16* restrict Ref, int32 Area)
 {  
   //up to 14 bit input
-  const int32 Area8    = (int32)((uint32)Area & c_MultipleMask8);
+  const int32 Area8    = (int32)((uint32)Area & c_MultipleMask8<uint32>);
   __m128i     SSD_V128 = _mm_setzero_si128();
 
   for(int32 i = 0; i < Area8; i += 8)
@@ -216,7 +216,7 @@ uint64 xDistortionSSE::CalcSSD(const uint16* restrict Tst, const uint16* restric
 uint64 xDistortionSSE::CalcSSD(const uint16* restrict Tst, const uint16* restrict Ref, int32 TstStride, int32 RefStride, int32 Width, int32 Height)
 {
   //up to 14 bit input
-  if(((uint32)Width & c_RemainderMask8)==0) //Width%8==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask8<uint32>)==0) //Width%8==0 - fast path without tail
   {
     __m128i SSD_V128 = _mm_setzero_si128();
     for(int32 y=0; y<Height; y++)
@@ -240,8 +240,8 @@ uint64 xDistortionSSE::CalcSSD(const uint16* restrict Tst, const uint16* restric
   }
   else //any other
   {
-    const int32 Width8 = (int32)((uint32)Width & c_MultipleMask8);
-    const int32 Width4 = (int32)((uint32)Width & c_MultipleMask4);
+    const int32 Width8 = (int32)((uint32)Width & c_MultipleMask8<uint32>);
+    const int32 Width4 = (int32)((uint32)Width & c_MultipleMask4<uint32>);
     uint64  SSD = 0;
     __m128i SSD_V128 = _mm_setzero_si128();
 
@@ -282,7 +282,7 @@ uint64 xDistortionSSE::CalcSSD(const uint16* restrict Tst, const uint16* restric
 int64 xDistortionSSE::CalcWeightedSD(const uint16* restrict Tst, const uint16* restrict Ref, const uint16* restrict Mask, int32 Area)
 {
   assert(0); //TODO - NOT TESTED
-  const int32 Area8 = (int32)((uint32)Area & c_MultipleMask8);
+  const int32 Area8 = (int32)((uint32)Area & c_MultipleMask8<uint32>);
   __m128i SD_V128 = _mm_setzero_si128();
 
   for(int32 i = 0; i < Area8; i += 8)
@@ -311,7 +311,7 @@ int64 xDistortionSSE::CalcWeightedSD(const uint16* restrict Tst, const uint16* r
 int64 xDistortionSSE::CalcWeightedSD(const uint16* restrict Tst, const uint16* restrict Ref, const uint16* restrict Mask, int32 TstStride, int32 RefStride, int32 MskStride, int32 Width, int32 Height)
 {
   assert(0); //TODO - NOT TESTED
-  if(((uint32)Width & c_RemainderMask8)==0) //Width%8==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask8<uint32>)==0) //Width%8==0 - fast path without tail
   {
     __m128i SD_V128 = _mm_setzero_si128();
     for(int32 y=0; y<Height; y++)
@@ -343,7 +343,7 @@ int64 xDistortionSSE::CalcWeightedSD(const uint16* restrict Tst, const uint16* r
   }
   else //any other
   {
-    const int32 Width8 = (int32)((uint32)Width & c_MultipleMask8);
+    const int32 Width8 = (int32)((uint32)Width & c_MultipleMask8<uint32>);
     int64   SD      = 0;
     __m128i SD_V128 = _mm_setzero_si128();
 
@@ -382,7 +382,7 @@ int64 xDistortionSSE::CalcWeightedSD(const uint16* restrict Tst, const uint16* r
 uint64 xDistortionSSE::CalcWeightedSSD(const uint16* restrict Tst, const uint16* restrict Ref, const uint16* restrict Mask, int32 Area)
 {
   assert(0); //TODO - NOT TESTED
-  const int32 Area8    = (int32)((uint32)Area & c_MultipleMask8);
+  const int32 Area8    = (int32)((uint32)Area & c_MultipleMask8<uint32>);
   __m128i     SSD_V128 = _mm_setzero_si128();
 
   for(int32 i = 0; i < Area8; i += 8)
@@ -413,7 +413,7 @@ uint64 xDistortionSSE::CalcWeightedSSD(const uint16* restrict Tst, const uint16*
 uint64 xDistortionSSE::CalcWeightedSSD(const uint16* restrict Tst, const uint16* restrict Ref, const uint16* restrict Mask, int32 TstStride, int32 RefStride, int32 MskStride, int32 Width, int32 Height)
 {
   assert(0); //TODO - NOT TESTED
-  if(((uint32)Width & c_RemainderMask8)==0) //Width%8==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask8<uint32>)==0) //Width%8==0 - fast path without tail
   {
     __m128i SSD_V128 = _mm_setzero_si128();
     for(int32 y=0; y<Height; y++)
@@ -447,7 +447,7 @@ uint64 xDistortionSSE::CalcWeightedSSD(const uint16* restrict Tst, const uint16*
   }
   else //any other
   {
-    const int32 Width8 = (int32)((uint32)Width & c_MultipleMask8);
+    const int32 Width8 = (int32)((uint32)Width & c_MultipleMask8<uint32>);
     uint64  SSD = 0;
     __m128i SSD_V128 = _mm_setzero_si128();
 

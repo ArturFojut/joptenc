@@ -5,6 +5,7 @@
 
 #include "xPicYUV.h"
 #include "xMemory.h"
+#include "xErrMsg.h"
 #include "xPixelOps.h"
 
 namespace PMBB_NAMESPACE {
@@ -45,6 +46,7 @@ void xPicYUV::create(int32V2 Size, int32 BitDepth, eCrF ChromaFormat, int32 Marg
     m_Stride          [c] = getWidth((eCmp)c) + (m_Margin << 1);
     m_Buffer          [c] = (uint16*)xMemory::xAlignedMallocPageAuto(m_BuffCmpNumBytesN[c]);
     m_Origin          [c] = m_Buffer[c] + (m_Margin * m_Stride[c]) + m_Margin;
+    if(m_Buffer[c] == nullptr) { xErrMsg::printError(fmt::format("TERRIBLE ERROR --> memory allocation failed in xPicYUV::create while using xMemory::xAlignedMallocPageAuto({})", m_BuffCmpNumBytesN[c])); abort(); }
   }  
 }
 void xPicYUV::destroy()
@@ -98,9 +100,9 @@ bool xPicYUV::check(const std::string& Name) const
   {
     if(!Correct[c])
     {
-      fmt::print("FILE BROKEN " + Name + " (CMP={:d})\n", c);
+      fmt::print("FILE BROKEN {} (CMP={:d})\n", Name, c);
       std::string Msg = xPixelOps::FindOutOfRange(m_Origin[c], getStride((eCmp)c), getWidth((eCmp)c), getHeight((eCmp)c), m_BitDepth, -1);
-      fmt::print(Msg);
+      fmt::print("{}", Msg);
       return false;
     }
   }

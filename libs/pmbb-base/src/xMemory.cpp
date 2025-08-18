@@ -9,6 +9,14 @@
   #define WIN32_LEAN_AND_MEAN
   #include <windows.h>
   #undef WIN32_LEAN_AND_MEAN
+
+  //clanup max min crap
+  #ifdef max
+    #undef max
+  #endif
+  #ifdef min
+    #undef min
+  #endif
 #endif //X_PMBB_OPERATING_SYSTEM_WINDOWS
 
 #ifdef X_PMBB_OPERATING_SYSTEM_LINUX
@@ -30,7 +38,8 @@ int32_t xDetectCacheLineSize()
 {
   int32_t CacheLineSize = NOT_VALID;
 
-#ifdef X_PMBB_OPERATING_SYSTEM_WINDOWS
+#if defined(X_PMBB_OPERATING_SYSTEM_WINDOWS)
+
   DWORD bufferSize = 0;
   SYSTEM_LOGICAL_PROCESSOR_INFORMATION* buffer = 0;
 
@@ -49,9 +58,9 @@ int32_t xDetectCacheLineSize()
   }
   free(buffer);
   CacheLineSize = LineSize;
-#endif //X_PMBB_OPERATING_SYSTEM_WINDOWS
 
-#ifdef X_PMBB_OPERATING_SYSTEM_LINUX
+#elif defined(X_PMBB_OPERATING_SYSTEM_LINUX)
+
   FILE* File = 0;
   File = fopen("/sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size", "r");
   int LineSize = 0;
@@ -62,23 +71,26 @@ int32_t xDetectCacheLineSize()
     if(Result != 1) { return 0; }
   }
   CacheLineSize = LineSize;
+
 #endif //X_PMBB_OPERATING_SYSTEM_LINUX
 
   return CacheLineSize;
 }
 
-int64_t xDetectMemoryPageSize()
+int64_t xDetectMemoryBasePageSize()
 {
   int64_t PageSize = NOT_VALID;
 
-#ifdef X_PMBB_OPERATING_SYSTEM_WINDOWS
+#if defined(X_PMBB_OPERATING_SYSTEM_WINDOWS) || defined(X_PMBB_OPERATING_SYSTEM_UNIX) || defined(X_PMBB_OPERATING_SYSTEM_MACOS)
+
   SYSTEM_INFO SysInfo;
   GetSystemInfo(&SysInfo);
   PageSize = SysInfo.dwPageSize;
-#endif //X_PMBB_OPERATING_SYSTEM_WINDOWS
 
-#ifdef X_PMBB_OPERATING_SYSTEM_LINUX
+#elif defined(X_PMBB_OPERATING_SYSTEM_LINUX)
+
   PageSize = sysconf(_SC_PAGE_SIZE);
+
 #endif //X_PMBB_OPERATING_SYSTEM_LINUX
 
   return PageSize;
@@ -88,12 +100,13 @@ int64_t xDetectMemoryHugePageSize()
 {
   int64_t PageSize = NOT_VALID;
 
-#if X_PMBB_OPERATING_SYSTEM_WINDOWS
+#if defined(X_PMBB_OPERATING_SYSTEM_WINDOWS)
+
   size_t LargePageMinimum = (int64_t)GetLargePageMinimum();
   PageSize = LargePageMinimum !=0 ? (int64_t)LargePageMinimum : NOT_VALID;
-#endif //X_PMBB_OPERATING_SYSTEM_WINDOWS
-  
-#ifdef X_PMBB_OPERATING_SYSTEM_LINUX
+ 
+#elif defined(X_PMBB_OPERATING_SYSTEM_LINUX)
+
   uint64_t MinPageSize = std::numeric_limits<uint64_t>::max();
 
   DIR* dirp = opendir("/sys/kernel/mm/hugepages");
@@ -111,11 +124,11 @@ int64_t xDetectMemoryHugePageSize()
   }
   closedir(dirp);
   PageSize = MinPageSize != std::numeric_limits<uint64_t>::max() ? (int64_t)MinPageSize : NOT_VALID;
+
 #endif //X_PMBB_OPERATING_SYSTEM_LINUX
 
   return PageSize;
 }
-
 
 } //end of namespace
 
@@ -127,7 +140,7 @@ namespace PMBB_BASE {
 //=============================================================================================================================================================================
 
 const int64  xMemory::c_DetectedCacheLine = xDetectCacheLineSize     ();
-const int64  xMemory::c_DetectedPageBase  = xDetectMemoryPageSize    ();
+const int64  xMemory::c_DetectedPageBase  = xDetectMemoryBasePageSize();
 const int64  xMemory::c_DetectedPageHuge  = xDetectMemoryHugePageSize();
 
 const uint64 xMemory::c_MemSizeCacheLine = c_DetectedCacheLine != NOT_VALID ? c_DetectedCacheLine : 0;
@@ -142,8 +155,8 @@ const uint32 xMemory::c_SizeMaskCacheLine = (1<<c_Log2MemSizeCacheLine) - 1;
 const uint32 xMemory::c_SizeMaskPageBase  = (1<<c_Log2MemSizePageBase ) - 1;
 const uint32 xMemory::c_SizeMaskPageHuge  = (1<<c_Log2MemSizePageHuge ) - 1;
 
-const uint32 xMemory::c_AllocThresholdPageBase = (c_SizeMaskPageBase >> 1) + (c_SizeMaskPageBase >> 2) + (c_SizeMaskPageBase >> 3);
-const uint32 xMemory::c_AllocThresholdPageHuge = (c_SizeMaskPageHuge >> 1) + (c_SizeMaskPageHuge >> 2) + (c_SizeMaskPageHuge >> 3);
+const uint32 xMemory::c_AllocThresholdPageBase = c_DetectedPageBase  != NOT_VALID ? xCalcAllocThreshold(c_SizeMaskPageBase) : xCalcAllocThreshold(xc_MemSizePageDef);
+const uint32 xMemory::c_AllocThresholdPageHuge = c_DetectedPageHuge  != NOT_VALID ? xCalcAllocThreshold(c_SizeMaskPageHuge) : std::numeric_limits<uint32>::max();
 
 void* xMemory::xAlignedMallocCacheLine(uintSize Size)
 {
@@ -181,7 +194,6 @@ void* xMemory::xAlignedMallocAuto(uintSize Size)
   if(UseLineSize) { return xAlignedMallocCacheLine(Size); }
   return xAlignedMalloc(Size, 1);
 }
-
 void* xMemory::AlignedMalloc(uintSize Size, eMemAlignment Alignment)
 {
   switch(Alignment)

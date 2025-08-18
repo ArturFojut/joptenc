@@ -13,6 +13,7 @@
 #include <utility>
 #include <array>
 #include "xTestUtils.h"
+#include "xTimeUtils.h"
 #include "xMemory.h"
 #include "xCommonDefJPEG.h"
 #include "xJPEG_Entropy.h"
@@ -59,6 +60,35 @@ public:
 
 //===============================================================================================================================================================================================================
 
+void testFindLastNonZero(std::function <int32(const int16*)>findLastNonZero)
+{
+  int16 Block[BA];
+  //deterministic empty 
+  {
+    memset(Block, 0, BA * sizeof(int16));
+    int32 N = findLastNonZero(Block);
+    CHECK(N == 0);
+  }  
+  //deterministic single 
+  for(int32 n = 0; n < BA; n++)
+  {
+    memset(Block, 0, BA * sizeof(int16));
+    Block[n] = 1;
+    int32 N = findLastNonZero(Block);
+    CHECK(n == N);
+  }
+  //deterministic all 
+  for(int32 n = 0; n < BA; n++)
+  {
+    memset(Block, 0, BA * sizeof(int16));
+    for(int32 m = 0; m <= n; m++) { Block[n] = 1; }
+    int32 N = findLastNonZero(Block);
+    CHECK(n == N);
+  }
+}
+
+//===============================================================================================================================================================================================================
+
 void testEntropy(bool UseDefault)
 {
   constexpr int32 NumIters = 64;
@@ -69,10 +99,9 @@ void testEntropy(bool UseDefault)
   int16* Src = (int16*)xMemory::xAlignedMallocPageAuto(BuffSize);
   int16* Dst = (int16*)xMemory::xAlignedMallocPageAuto(BuffSize);
 
-  xByteBuffer EntropyBuffer;
-  EntropyBuffer.resize(BuffSize * 2);
-  xByteBuffer FinalBuffer;
-  FinalBuffer.resize(BuffSize * 4);
+  xByteBuffer EncodeBuffer ; EncodeBuffer .resize(BuffSize * 4);
+  xByteBuffer StorageBuffer; StorageBuffer.resize(BuffSize * 4);
+  xByteBuffer DecodeBuffer ; DecodeBuffer .resize(BuffSize * 4);
   
   std::vector<xJFIF::xHuffTable> HT;
   HT.resize(4);
@@ -98,33 +127,34 @@ void testEntropy(bool UseDefault)
 
     for(int32 c = 0; c <= 1; c++)
     {
-      FinalBuffer.reset();
-
       //encode
-      EntropyBuffer.reset();
+      EncodeBuffer .reset();
+      StorageBuffer.reset();
+      DecodeBuffer .reset();
+
       if(UseDefault)
       {
-        EntropyEncDef.StartSlice(&EntropyBuffer);
+        EntropyEncDef.StartSlice(&EncodeBuffer);
         for(int32 i = 0; i < NumBlock; i++) { EntropyEncDef.EncodeBlock(Src + (i * BA), eCmp(c)); }
         EntropyEncDef.FinishSlice();
       }
       else
       {
-        EntropyEnc.StartSlice(&EntropyBuffer);
+        EntropyEnc.StartSlice(&EncodeBuffer);
         for(int32 i = 0; i < NumBlock; i++) { EntropyEnc.EncodeBlock(Src + (i * BA), eCmp(c), c, c); }
         EntropyEnc.FinishSlice();
       }
 
-      //copy to output and add stuffing
-      xJFIF::AddStuffing(&FinalBuffer, &EntropyBuffer);
-
-      EntropyBuffer.reset();
+      //copy to output and add stuffing      
+      xJFIF::AddStuffing(&StorageBuffer, &EncodeBuffer);
 
       //copy from input and remove stuffing until next marker
-      xJFIF::RemoveStuffing(&EntropyBuffer, &FinalBuffer);
+      xJFIF::RemoveStuffing(&DecodeBuffer, &StorageBuffer);
+
+      CHECK(EncodeBuffer.isSameData(&DecodeBuffer));
 
       //decode
-      EntropyDec.StartSlice(&EntropyBuffer);
+      EntropyDec.StartSlice(&DecodeBuffer);
       for(int32 i = 0; i < NumBlock; i++) { EntropyDec.DecodeBlock(Dst + (i * BA), eCmp(c), c, c); }
       EntropyDec.FinishSlice();
 
@@ -192,15 +222,19 @@ void testEntropyEstimator(bool UseDefault)
       int32 EstBits = 0;
       if(UseDefault)
       {
-        EntropyEstDef.StartSlice();
-        for(int32 i = 0; i < NumBlock; i++) { EstBits += EntropyEstDef.EstimateBlock(Src + (i * BA), eCmp(c)); }
-        //EntropyEstDef.FinishSlice();
+        for(int32 i = 0; i < NumBlock; i++)
+        {
+          int32 LastDC = i == 0 ? 0 : Src[(i - 1) * BA];
+          EstBits += EntropyEstDef.EstimateBlock(Src + (i * BA), LastDC, eCmp(c));
+        }
       }
       else
       {
-        EntropyEst.StartSlice();
-        for(int32 i = 0; i < NumBlock; i++) { EstBits += EntropyEst.EstimateBlock(Src + (i * BA), eCmp(c), c, c); }
-        //EntropyEst.FinishSlice();
+        for(int32 i = 0; i < NumBlock; i++)
+        { 
+          int32 LastDC = i == 0 ? 0 : Src[(i - 1) * BA];
+          EstBits += EntropyEst.EstimateBlock(Src + (i * BA), LastDC, c, c);
+        }
       }
 
       //compare
@@ -273,19 +307,23 @@ std::tuple<flt64, flt64> perfEntropy(bool UseDefault)
       int32 EstBits = 0;
       if(UseDefault)
       {
-        EntropyEstDef.StartSlice();
         tTimePoint T = tClock::now();
-        for(int32 i = 0; i < NumBlock; i++) { EstBits += EntropyEstDef.EstimateBlock(Src + (i * BA), eCmp(c)); }
+        for(int32 i = 0; i < NumBlock; i++) 
+        {
+          int32 LastDC = i == 0 ? 0 : Src[(i - 1) * BA];
+          EstBits += EntropyEstDef.EstimateBlock(Src + (i * BA), LastDC, eCmp(c));
+        }
         ES += tClock::now() - T;
-        //EntropyEstDef.FinishSlice();
       }
       else
       {
-        EntropyEst.StartSlice();
         tTimePoint T = tClock::now();
-        for(int32 i = 0; i < NumBlock; i++) { EstBits += EntropyEst.EstimateBlock(Src + (i * BA), eCmp(c), c, c); }
+        for(int32 i = 0; i < NumBlock; i++) 
+        { 
+          int32 LastDC = i == 0 ? 0 : Src[(i - 1) * BA];
+          EstBits += EntropyEst.EstimateBlock(Src + (i * BA), LastDC, c, c);
+        }
         ES += tClock::now() - T;
-        //EntropyEst.FinishSlice();
       }
 
       //compare
@@ -304,7 +342,31 @@ std::tuple<flt64, flt64> perfEntropy(bool UseDefault)
 
 //===============================================================================================================================================================================================================
 
-#ifdef NDEBUG 
+TEST_CASE("testFindLastNonZeroSTD")
+{
+  testFindLastNonZero(xEntropyCommon::findLastNonZeroSTD);
+}
+
+#if X_SIMD_CAN_USE_SSE
+TEST_CASE("testFindLastNonZeroSSE")
+{
+  testFindLastNonZero(xEntropyCommon::findLastNonZeroSSE);
+}
+#endif
+
+#if X_SIMD_CAN_USE_AVX
+TEST_CASE("testFindLastNonZeroAVX")
+{
+  testFindLastNonZero(xEntropyCommon::findLastNonZeroAVX);
+}
+#endif
+
+#if X_SIMD_CAN_USE_AVX512
+TEST_CASE("testFindLastNonZeroAVX512")
+{
+  testFindLastNonZero(xEntropyCommon::findLastNonZeroAVX512);
+}
+#endif
 
 TEST_CASE("testEntropy")
 {
@@ -326,6 +388,8 @@ TEST_CASE("testEstimatorDefault")
   testEntropyEstimator(true);
 }
 
+#ifdef NDEBUG
+
 TEST_CASE("testEntropy-perf")
 {
   auto [EN, ES] = perfEntropy(false);
@@ -339,7 +403,7 @@ TEST_CASE("testEntropyDefault-perf")
   fmt::print("TIME(xEntropyDefaultEstimator) = {:.2f} kBlock/s\n", ES / (1024));
 }
 
-#endif //def NDEBUG
+#endif
 
 //===============================================================================================================================================================================================================
 

@@ -14,8 +14,8 @@ namespace PMBB_NAMESPACE::JPEG {
 class xScanAVX512
 {
 public:
-  static void Scan   (int16* ScanCoeff, const int16* Coeff    );
-  static void InvScan(int16* Coeff,     const int16* ScanCoeff);
+  static void Scan   (int16* restrict ScanCoeff, const int16* Coeff    );
+  static void InvScan(int16* restrict Coeff,     const int16* ScanCoeff);
 };
 #else //X_SIMD_CAN_USE_AVX512
 #define X_CAN_USE_AVX512 0
@@ -26,8 +26,8 @@ public:
 class xScanSTD
 {
 public:
-  static void Scan   (int16* ScanCoeff, const int16* Coeff    );
-  static void InvScan(int16* Coeff,     const int16* ScanCoeff);
+  static void Scan   (int16* restrict ScanCoeff, const int16* Coeff    );
+  static void InvScan(int16* restrict Coeff,     const int16* ScanCoeff);
 };
 
 //=============================================================================================================================================================================

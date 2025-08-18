@@ -226,7 +226,7 @@ void xBitstreamWriter::writeBit(uint32 Bit)
 }
 void xBitstreamWriter::writeBits(uint32 Bits, uint32 NumberOfBitsToWrite)
 {
-  assert( NumberOfBitsToWrite <= c_TmpBuffBits );
+  assert(NumberOfBitsToWrite >0 && NumberOfBitsToWrite <= c_TmpBuffBits );
   assert( (Bits & (0xFFFFFFFF >> (c_TmpBuffBits - NumberOfBitsToWrite))) == Bits);
   //Bits &= Mask;
 

@@ -32,35 +32,36 @@ int32 APP_MAIN(int argc, char* argv[], char* /*envp*/[])
   //parsing configuration
   AppJPEG.registerCmdParams();
   bool CfgLoadResult = AppJPEG.loadConfiguration(argc, const_cast<const char**>(argv));
-  if(!CfgLoadResult) { xCfgINI::printError(AppJPEG.getErrorLog() + "\n\n", xAppJPEG::c_HelpString); return EXIT_FAILURE; }
+  if(!CfgLoadResult) { xErrMsg::printError(AppJPEG.getErrorLog() + "\n\n", xAppJPEG::c_HelpString); return EXIT_FAILURE; }
   bool CfgReadResult = AppJPEG.readConfiguration();
-  if(!CfgReadResult) { xCfgINI::printError(AppJPEG.getErrorLog() + "\n\n", xAppJPEG::c_HelpString); return EXIT_FAILURE; }
+  if(!CfgReadResult) { xErrMsg::printError(AppJPEG.getErrorLog() + "\n\n", xAppJPEG::c_HelpString); return EXIT_FAILURE; }
   const int32 VerboseLevel = AppJPEG.getVerboseLevel();
 
   if(VerboseLevel >= 2)
   { 
-    fmt::print("WorkingDir = " + std::filesystem::current_path().string() + "\n\n");    
+    fmt::print("WorkingDir = {}\n\n", std::filesystem::current_path().string());
     fmt::print("Commandline args:\n"); xCfgINI::printCommandlineArgs(argc, const_cast<const char**>(argv));
   }
 
   //print compile time setup
-  if (VerboseLevel >= 1)
-  {
-    fmt::print(xMiscUtilsCORE::formatCompileTimeSetup());
-    fmt::print("\n");
-  }
+  if (VerboseLevel >= 5) { fmt::print("{}\n", xMiscUtilsCORE::formatBuildInfo       ()); }
+  if (VerboseLevel >= 1) { fmt::print("{}\n", xMiscUtilsCORE::formatCompileTimeSetup()); }  
 
   //print config
-  if(VerboseLevel >= 1) { fmt::print(AppJPEG.formatConfiguration()); fmt::print("\n"); }
+  if(VerboseLevel >= 1) { fmt::print("{}\n", AppJPEG.formatConfiguration()); }
 
   //validate file names against input parameters
   eAppRes ValidFilesRes = AppJPEG.validateInputFiles();
-  if(ValidFilesRes == eAppRes::Warning) { xCfgINI::printError(std::string("PARAMETERS WARNING: Invalid parameters\n") + AppJPEG.getErrorLog()); }
-  if(ValidFilesRes == eAppRes::Error  ) { xCfgINI::printError(std::string("PARAMETERS WARNING: Invalid parameters\n") + AppJPEG.getErrorLog()); return EXIT_FAILURE; }
+  if(ValidFilesRes == eAppRes::Warning) { xErrMsg::printError(std::string("PARAMETERS WARNING: Invalid parameters\n") + AppJPEG.getErrorLog()); }
+  if(ValidFilesRes == eAppRes::Error  ) { xErrMsg::printError(std::string("PARAMETERS WARNING: Invalid parameters\n") + AppJPEG.getErrorLog()); return EXIT_FAILURE; }
 
   //print configuration warnings
   std::string ConfigWarnings = AppJPEG.formatWarnings();
-  if(!ConfigWarnings.empty()) { fmt::print(ConfigWarnings); }
+  if(!ConfigWarnings.empty()) { fmt::print("{}", ConfigWarnings); }
+
+  //hardware concurency
+  AppJPEG.setupMultithreading();
+  if(VerboseLevel >= 1) { fmt::print("{}\n", AppJPEG.formatMultithreading()); }
 
   //spacer
   fmt::print("\n\n\n");
@@ -86,14 +87,14 @@ int32 APP_MAIN(int argc, char* argv[], char* /*envp*/[])
   //===================================================================================================================
   //finalizing
   //===================================================================================================================
-  if(VerboseLevel >= 1) { fmt::print("\n"); fmt::print(AppJPEG.calibrateTimeStamp()); }
+  if(VerboseLevel >= 1) { fmt::print("{}\n", AppJPEG.calibrateTimeStamp()); }
   fmt::print("\n\n");
   AppJPEG.combineFrameStats  ();
   AppJPEG.ceaseSeqAndBuffs   ();
+  AppJPEG.ceaseMultithreading();
 
   //printout results
-  fmt::print(AppJPEG.formatResultsStdOut());
-  fmt::print("\n");
+  fmt::print("{}\n", AppJPEG.formatResultsStdOut());
   tTimePoint AppEnd = tClock::now();
   fmt::print("TotalProcessingTime  = {:.3f} s\n", std::chrono::duration_cast<tDurationS>(PrcEnd - PrcBeg).count());
   fmt::print("TotalApplicationTime = {:.3f} s\n", std::chrono::duration_cast<tDurationS>(AppEnd - AppBeg).count());

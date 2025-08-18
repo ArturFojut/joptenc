@@ -26,23 +26,50 @@ void xCodecCommon::initCodecCommon(int32V2 PictureSize, eCrF ChromaFormat)
 
   for(int32 CmpIdx = 0; CmpIdx < m_NumOfComponents; CmpIdx++)
   {
-    m_Log2MCUsWidth [CmpIdx] = c_L2BS + m_SampFactorHor[CmpIdx] - 1;
-    m_Log2MCUsHeight[CmpIdx] = c_L2BS + m_SampFactorVer[CmpIdx] - 1;
+    m_Log2MCUsWidth    [CmpIdx] = c_L2BS + m_SampFactorHor[CmpIdx] - 1;
+    m_Log2MCUsHeight   [CmpIdx] = c_L2BS + m_SampFactorVer[CmpIdx] - 1;
 
-    m_CmpWidth      [CmpIdx] = m_PictureWidth  >> m_ShiftHor[CmpIdx];
-    m_CmpHeight     [CmpIdx] = m_PictureHeight >> m_ShiftVer[CmpIdx];
+    m_CmpWidth         [CmpIdx] = m_PictureWidth  >> m_ShiftHor[CmpIdx];
+    m_CmpHeight        [CmpIdx] = m_PictureHeight >> m_ShiftVer[CmpIdx];
 
-    m_MCUsMulWidth  [CmpIdx] = xRoundUpToNearestMultiple(m_CmpWidth [CmpIdx], m_Log2MCUsWidth [CmpIdx]);
-    m_MCUsMulHeight [CmpIdx] = xRoundUpToNearestMultiple(m_CmpHeight[CmpIdx], m_Log2MCUsHeight[CmpIdx]);
+    m_ScanlineHeight   [CmpIdx] = c_BS * m_SampFactorVer[CmpIdx];
 
-    m_NumBlocks     [CmpIdx] = (m_MCUsMulWidth[CmpIdx] >> c_L2BS) * (m_MCUsMulHeight[CmpIdx] >> c_L2BS);
+    m_MCUsMulWidth     [CmpIdx] = xRoundUpToNearestMultiple(m_CmpWidth [CmpIdx], m_Log2MCUsWidth [CmpIdx]);
+    m_MCUsMulHeight    [CmpIdx] = xRoundUpToNearestMultiple(m_CmpHeight[CmpIdx], m_Log2MCUsHeight[CmpIdx]);
+    m_MCUsMulArea      [CmpIdx] = m_MCUsMulWidth[CmpIdx] * m_MCUsMulHeight[CmpIdx];
 
-    m_ScanlineHeight[CmpIdx] = c_BS * m_SampFactorVer[CmpIdx];
+    m_NumBlocksInWidth [CmpIdx] = m_MCUsMulWidth [CmpIdx] >> c_L2BS;
+    m_NumBlocksInHeight[CmpIdx] = m_MCUsMulHeight[CmpIdx] >> c_L2BS;
+    m_NumBlocksInArea  [CmpIdx] = m_NumBlocksInWidth[CmpIdx] * m_NumBlocksInHeight[CmpIdx];
+
+    m_NumBlocksInMCU   [CmpIdx] = m_SampFactorHor[CmpIdx] * m_SampFactorVer[CmpIdx];
   }
 
   m_NumMCUsInWidth  = xNumUnitsCoveringLength(m_PictureWidth,  m_Log2MCUsWidth [0]);
   m_NumMCUsInHeight = xNumUnitsCoveringLength(m_PictureHeight, m_Log2MCUsHeight[0]);
   m_NumMCUsInArea   = m_NumMCUsInWidth * m_NumMCUsInHeight;
+}
+
+//=====================================================================================================================================================================================
+
+int32 xCodecCommon::calcNumMCUsInWidth(int32V2 PictureSize, eCrF ChromaFormat)
+{
+  int32 PictureWidth = PictureSize.getX();
+
+  int32 LumaSampleFactorHor = 0;
+  switch(ChromaFormat)
+  {
+  case eCrF::CF444: LumaSampleFactorHor = 1; break;
+  case eCrF::CF422: LumaSampleFactorHor = 2; break;
+  case eCrF::CF420: LumaSampleFactorHor = 2; break;
+  case eCrF::CF400: LumaSampleFactorHor = 1; break;
+  default: assert(0); break;
+  }
+
+  int32 Log2MCUsWidth  = c_L2BS + LumaSampleFactorHor - 1;
+  int32 NumMCUsInWidth = xNumUnitsCoveringLength(PictureWidth, Log2MCUsWidth);
+
+  return NumMCUsInWidth;
 }
 
 //=====================================================================================================================================================================================

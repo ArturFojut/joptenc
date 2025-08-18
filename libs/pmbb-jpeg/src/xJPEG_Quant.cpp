@@ -10,7 +10,7 @@ namespace PMBB_NAMESPACE::JPEG {
 //=============================================================================================================================================================================
 // xQuantFLT
 //=============================================================================================================================================================================
-void xQuantFLT::QuantScale(int16* Dst, const int16* Src, const uint16* Quant, const uint16*, const uint16*)
+void xQuantFLT::QuantScale(int16* restrict Dst, const int16* Src, const uint16* Quant, const uint16*, const uint16*)
 {
   for(int32 i=0; i < 64; i++)
   {
@@ -19,7 +19,7 @@ void xQuantFLT::QuantScale(int16* Dst, const int16* Src, const uint16* Quant, co
     Dst[i] = (int16)round(CoeffDst);
   }
 }
-void xQuantFLT::InvScale(int16* Dst, const int16* Src, const uint16* Quant)
+void xQuantFLT::InvScale(int16* restrict Dst, const int16* Src, const uint16* Quant)
 {
   for(int32 i=0; i < 64; i++)
   {
@@ -31,7 +31,7 @@ void xQuantFLT::InvScale(int16* Dst, const int16* Src, const uint16* Quant)
 //=============================================================================================================================================================================
 // xQuantSTD
 //=============================================================================================================================================================================
-void xQuantSTD::QuantScale(int16* Dst, const int16* Src, const uint16* Correction, const uint16* Reciprocal, const uint16* Shift)
+void xQuantSTD::QuantScale(int16* restrict Dst, const int16* Src, const uint16* Correction, const uint16* Reciprocal, const uint16* Shift)
 {
   for(int32 i=0; i < 64; i++)
   {
@@ -43,7 +43,7 @@ void xQuantSTD::QuantScale(int16* Dst, const int16* Src, const uint16* Correctio
     Dst[i] = (int16)CoeffDst;
   }
 }
-void xQuantSTD::InvScale(int16* Dst, const int16* Src, const uint16* Quant)
+void xQuantSTD::InvScale(int16* restrict Dst, const int16* Src, const uint16* Quant)
 {
   for(int32 i=0; i < 64; i++)
   {
@@ -57,7 +57,7 @@ void xQuantSTD::InvScale(int16* Dst, const int16* Src, const uint16* Quant)
 // xQuantSSE
 //=============================================================================================================================================================================
 #if X_SIMD_CAN_USE_SSE
-void xQuantSSE::QuantScale(int16* Dst, const int16* Src, const uint16* Correction, const uint16* Reciprocal, const uint16* Scale)
+void xQuantSSE::QuantScale(int16* restrict Dst, const int16* Src, const uint16* Correction, const uint16* Reciprocal, const uint16* Scale)
 {
   const __m128i OneV = _mm_set1_epi16(1);
 
@@ -79,7 +79,7 @@ void xQuantSSE::QuantScale(int16* Dst, const int16* Src, const uint16* Correctio
     _mm_storeu_si128((__m128i*)(Dst + i), CoeffV);
   }
 }
-void xQuantSSE::InvScale(int16* Dst, const int16* Src, const uint16* QuantCoeff)
+void xQuantSSE::InvScale(int16* restrict Dst, const int16* Src, const uint16* QuantCoeff)
 {
   for(int32 i=0; i < 64; i+=8)
   {
@@ -95,7 +95,7 @@ void xQuantSSE::InvScale(int16* Dst, const int16* Src, const uint16* QuantCoeff)
 // xQuantAVX
 //=============================================================================================================================================================================
 #if X_SIMD_CAN_USE_AVX
-void xQuantAVX::QuantScale(int16* Dst, const int16* Src, const uint16* Correction, const uint16* Reciprocal, const uint16* Scale)
+void xQuantAVX::QuantScale(int16* restrict Dst, const int16* Src, const uint16* Correction, const uint16* Reciprocal, const uint16* Scale)
 {
   const __m256i OneV = _mm256_set1_epi16(1);
 
@@ -117,7 +117,7 @@ void xQuantAVX::QuantScale(int16* Dst, const int16* Src, const uint16* Correctio
     _mm256_storeu_si256((__m256i*)(Dst + i), CoeffV);
   }
 }
-void xQuantAVX::InvScale(int16* Dst, const int16* Src, const uint16* QuantCoeff)
+void xQuantAVX::InvScale(int16* restrict Dst, const int16* Src, const uint16* QuantCoeff)
 {
   for(int32 i=0; i < 64; i+=16)
   {
@@ -143,7 +143,7 @@ void xQuantAVX512::QuantScale(int16* Dst, const int16* Src, const uint16* Correc
     __m512i ReciprocalV = _mm512_loadu_si512((__m512i*)(Reciprocal + i));
     __m512i ScaleV      = _mm512_loadu_si512((__m512i*)(Scale      + i));
     //extract sign
-    uint32 SignMask   = _mm512_cmpgt_epi16_mask(CoeffSrcV, _mm512_setzero_si512());
+    uint32  SignMask  = _mm512_cmpgt_epi16_mask(CoeffSrcV, _mm512_setzero_si512());
     __m512i CoeffAbsV = _mm512_abs_epi16(CoeffSrcV);
     //quant
     __m512i CoeffQntV = _mm512_mulhi_epu16(_mm512_mulhi_epu16(_mm512_add_epi16(CoeffAbsV, CorrectionV), ReciprocalV), ScaleV);

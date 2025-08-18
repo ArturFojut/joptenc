@@ -29,23 +29,32 @@ endif()
 #=========================================================================================================================================
 # Setup
 #=========================================================================================================================================
-# force static runtime libraries for msvc builds
-if(MSVC)
-  set(variables CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_MINSIZEREL)
-  foreach(variable ${variables})
-    if(${variable} MATCHES "/MD")
-      string(REGEX REPLACE "/MD" "/MT" ${variable} "${${variable}}")
-    endif()
-  endforeach()
+set(PMBB_ENABLE_EXPERIMENTAL FALSE  CACHE BOOL "Enable experimental features")
+
+if(PMBB_ENABLE_EXPERIMENTAL)
+# detect c++20 or c++17
+if    ("cxx_std_20" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+  set(CMAKE_CXX_STANDARD 20)
+elseif("cxx_std_17" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+  set(CMAKE_CXX_STANDARD 17)
+endif ()
+else()
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
-# set c++17
-set(CMAKE_CXX_STANDARD          17 )
+# set c++ standard requirements
 set(CMAKE_CXX_STANDARD_REQUIRED ON ) 
 set(CMAKE_CXX_EXTENSIONS        OFF)
 
 # compile everything position independent (even static libraries)
 set(CMAKE_POSITION_INDEPENDENT_CODE TRUE )
+
+# force static runtime libraries for msvc builds 
+if(MSVC)
+  #set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  #add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
+  #add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+endif()
 
 #-----------------------------------------------------------------------------------------------------------------------------------------
 # set lto
@@ -121,6 +130,16 @@ if(X_IS_AMD64 AND X_IS_64BIT)
     if (PMBB_BUILD_WITH_MARCH_NATIVE)
       if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
         add_compile_options("-march=native")
+      endif()
+      if(MSVC)
+        include(cmake/x86_64_SIMD.cmake)
+        detect_host_x86_64_MFL(HOST_x86_64_MFL)
+        message(STATUS "HOST_x86_64_MFL  --> ${HOST_x86_64_MFL}")
+        determine_compiler_settings_for_MFL(MFL_CO MFL_CD MFL_CN ${HOST_x86_64_MFL})
+        message(STATUS "MFL_CO = ${MFL_CO}")
+        message(STATUS "MFL_CD = ${MFL_CD}")
+        add_compile_options    (${MFL_CO})
+        add_compile_definitions(${MFL_CD})
       endif()
     else()
       determine_compiler_settings_for_MFL(MFL_CO MFL_CD MFL_CN "x86-64-v2")

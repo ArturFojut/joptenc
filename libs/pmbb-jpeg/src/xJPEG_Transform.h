@@ -13,8 +13,8 @@ class xTransformFLT
 {
 public:
   //direct multiplication with flt32 transform coefficients
-  static void FwdTransformDCT_8x8_MFL(int16* restrict Dst, const uint16* Src);
-  static void InvTransformDCT_8x8_MFL(uint16* restrict Dst, const int16* Src);
+  static void FwdTransformDCT_8x8_MFL(int16*  restrict Dst, const uint16* Src);
+  static void InvTransformDCT_8x8_MFL(uint16* restrict Dst, const int16*  Src);
 };
 
 //===============================================================================================================================================================================================================
@@ -99,9 +99,12 @@ public:
 
 //===============================================================================================================================================================================================================
 
-} //end of namespace PMBB::JPEG
-
 #undef X_CAN_USE_SSE
 #undef X_CAN_USE_AVX
 #undef X_CAN_USE_AVX512
+
+//===============================================================================================================================================================================================================
+
+} //end of namespace PMBB::JPEG
+
 

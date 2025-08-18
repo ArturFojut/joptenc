@@ -21,31 +21,22 @@ public:
   static constexpr int32 c_Log2BlockArea = 3 << 1;
   static constexpr int32 c_BlockArea     = c_BlockSize * c_BlockSize;
 
+  static constexpr int32 c_NumCodeLenghts      = 16;
   static constexpr int32 c_MaxNumCodeSymbolsDC = 16;
   static constexpr int32 c_MaxNumCodeSymbolsAC = 256;
 
 public:
   //scan tables
-  static constexpr uint8 m_ScanZigZag   [64] =
-  {
-     0,  1,  8, 16,  9,  2,  3, 10,
-    17, 24, 32, 25, 18, 11,  4,  5,
-    12, 19, 26, 33, 40, 48, 41, 34,
-    27, 20, 13,  6,  7, 14, 21, 28,
-    35, 42, 49, 56, 57, 50, 43, 36,
-    29, 22, 15, 23, 30, 37, 44, 51,
-    58, 59, 52, 45, 38, 31, 39, 46,
-    53, 60, 61, 54, 47, 55, 62, 63,
-  };
-  static const uint8 m_InvScanZigZag[64];
+  static const uint8 m_ScanZigZag   [c_BlockArea];
+  static const uint8 m_InvScanZigZag[c_BlockArea];
 
   //quantization tables in raster order
-  static const uint8 m_QuantTabDefLumaR  [64];
-  static const uint8 m_QuantTabDefChromaR[64];
+  static const uint8 m_QuantTabDefLumaR  [c_BlockArea];
+  static const uint8 m_QuantTabDefChromaR[c_BlockArea];
 
   //quantization tables in zigzag order
-  static const uint8 m_QuantTabDefLumaZ  [64];
-  static const uint8 m_QuantTabDefChromaZ[64];
+  static const uint8 m_QuantTabDefLumaZ  [c_BlockArea];
+  static const uint8 m_QuantTabDefChromaZ[c_BlockArea];
 
   //default huffman tables
   static const uint8 m_CodeLengthLumaDC  [ 16];

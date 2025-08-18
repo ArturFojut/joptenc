@@ -6,12 +6,13 @@
 #pragma once
 #include "xCommonDefSLST.h"
 #include "xSeq.h"
+#include "xString.h"
 
 namespace PMBB_NAMESPACE {
 
 //===============================================================================================================================================================================================================
 
-class xSeqImgList : public xSeqBase
+class xSeqImgList : public xSeqPic
 {
 public:
   static constexpr int32 c_DefaultMaxNumFiles = std::numeric_limits<int32>::max() - 1;
@@ -42,7 +43,7 @@ protected:
   
 
 protected:
-  inline std::string xFormatFileName(int32 FrameIdx) const { return fmt::format(m_FileNamePattern, FrameIdx); }
+  inline std::string xFormatFileName(int32 FrameIdx) const { return fmt::format(fmt::runtime(m_FileNamePattern), FrameIdx); }
           tResult xImgListOpenRead  ();
           tResult xImgListOpenWrite ();
   virtual tResult xImgListFileVerify(tCSR FileName           ) = 0;

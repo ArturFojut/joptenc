@@ -3,13 +3,17 @@
     SPDX-License-Identifier: BSD-3-Clause
 */
 #pragma once
-#include "xCommonDefPMBB-BASE.h"
+#include "xCommonDefBASE.h"
 
 //===============================================================================================================================================================================================================
 // base includes
 //===============================================================================================================================================================================================================
 #if __has_include(<sys/mman.h>)
 #include <sys/mman.h>
+#endif
+
+#if X_PMBB_CPP20
+#include <bit>
 #endif
 
 //===============================================================================================================================================================================================================
@@ -24,12 +28,6 @@ namespace PMBB_NAMESPACE { using namespace PMBB_BASE; }
 //===============================================================================================================================================================================================================
 // SIMD section - common
 //===============================================================================================================================================================================================================
-#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_AMD64) || defined(_M_IX86))
-#include <intrin.h>
-#elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
-#include <x86intrin.h>
-#endif
-
 #define USE_SIMD  1 // use SIMD
 
 namespace PMBB_NAMESPACE {
@@ -39,14 +37,14 @@ namespace PMBB_NAMESPACE {
 //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 //MSVC does not define __SSEn__ macros. Assuming all extensions present.
-#if defined(_MSC_VER)
-#define __SSE__    1
-#define __SSE2__   1
-#define __SSE3__   1
-#define __SSSE3__  1
-#define __SSE4_1__ 1
-#define __SSE4_2__ 1
-#endif
+//#if defined(_MSC_VER)
+//#define __SSE__    1
+//#define __SSE2__   1
+//#define __SSE3__   1
+//#define __SSSE3__  1
+//#define __SSE4_1__ 1
+//#define __SSE4_2__ 1
+//#endif
 
 //SSE    - since Pentium III
 //SSE2   - since Pentium 4 (Willamette, Northwood, Gallatin)
@@ -103,6 +101,7 @@ template <class XXX> static inline XXX xClipU8  (XXX x                  ) { retu
 template <class XXX> static inline XXX xClipS8  (XXX x                  ) { return xMax((XXX)-128,xMin(x,(XXX)127));}
 template <class XXX> static inline XXX xClipU16 (XXX x                  ) { return xMax((XXX)0,xMin(x,(XXX)65536));}
 template <class XXX> static inline XXX xClipS16 (XXX x                  ) { return xMax((XXX)-32768,xMin(x,(XXX)32767));}
+template <class XXX> static inline XXX xClipPos (XXX x                  ) { return xMax((XXX)0, x); }
 
 template <class XXX> static inline XXX xAbs     (XXX a) { return (XXX)std::abs(a); }
 template <class XXX> static inline XXX xSign    (XXX a) { return a == 0 ? 0 : a > 0 ? 1 : -1; }
@@ -122,6 +121,8 @@ template <class XXX> static inline XXX xNumUnitsCoveringLength(XXX Length, XXX L
 template <class XXX> static inline XXX xRoundCntrToNearestMultiple(XXX Value, XXX Log2Multiple) { return (((Value + ((1 << Log2Multiple) >> 1)) >> Log2Multiple) << Log2Multiple); } //positive integer only
 template <class XXX> static inline XXX xRoundUpToNearestMultiple  (XXX Value, XXX Log2Multiple) { return (((Value + ((1 << Log2Multiple) -  1)) >> Log2Multiple) << Log2Multiple); } //positive integer only
 template <class XXX> static inline XXX xRoundDownToNearestMultiple(XXX Value, XXX Log2Multiple) { return (( Value                               >> Log2Multiple) << Log2Multiple); } //positive integer only
+
+template <class XXX> static inline bool xInRange(XXX x, XXX min, XXX max) { return ((x <= max) && (x >= min)); }
 
 //===============================================================================================================================================================================================================
 // flt32/64 to int32 rounding
@@ -143,15 +144,15 @@ template <> inline int32 xRoundFltToInt32(flt64 Flt) { return xRoundFlt64ToInt32
 //https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
 //https://stackoverflow.com/questions/17333/what-is-the-most-effective-way-for-float-and-double-comparison
 
-template<typename XXX> static bool xIsApproximatelyEqual(XXX a, XXX b, XXX Tolerance = std::numeric_limits<XXX>::epsilon())
+template<typename XXX> static bool xIsApproximatelyEqual(XXX a, XXX b, XXX Tolerance = 8*std::numeric_limits<XXX>::epsilon())
 {
   XXX Diff = std::fabs(a - b); if(Diff <= Tolerance || Diff < std::fmax(std::fabs(a), std::fabs(b)) * Tolerance) { return true; }
   return false;
 }
-template<typename XXX> static inline bool xIsApproximatelyZero(XXX a, XXX Tolerance = std::numeric_limits<XXX>::epsilon()) { return (std::fabs(a           ) <= Tolerance); }
-template<typename XXX> static inline bool xIsApproximatelyOne (XXX a, XXX Tolerance = std::numeric_limits<XXX>::epsilon()) { return (std::fabs(a - (XXX)1.0) <= Tolerance); }
+template<typename XXX> static inline bool xIsApproximatelyZero(XXX a, XXX Tolerance = 8*std::numeric_limits<XXX>::epsilon()) { return (std::fabs(a           ) <= Tolerance); }
+template<typename XXX> static inline bool xIsApproximatelyOne (XXX a, XXX Tolerance = 8*std::numeric_limits<XXX>::epsilon()) { return (std::fabs(a - (XXX)1.0) <= Tolerance); }
 
-template<typename XXX> static inline XXX xRoundValuesCloseToZeroOrOne(XXX a, XXX Tolerance = std::numeric_limits<XXX>::epsilon())
+template<typename XXX> static inline XXX xRoundValuesCloseToZeroOrOne(XXX a, XXX Tolerance = 8*std::numeric_limits<XXX>::epsilon())
 {
   if     ( xIsApproximatelyZero(a, Tolerance)) { return (XXX)0.0; }
   else if( xIsApproximatelyOne (a, Tolerance)) { return (XXX)1.0; }
@@ -161,119 +162,36 @@ template<typename XXX> static inline XXX xRoundValuesCloseToZeroOrOne(XXX a, XXX
 //===============================================================================================================================================================================================================
 // Fast iteger Log2 using bsr (Bit Scan Reverse) x86/x64 instructions, undefined for Value == 0 (same as log2())
 //===============================================================================================================================================================================================================
-#if defined(X_PMBB_COMPILER_MSVC)
-static inline uint32 xFastLog2(uint32 Value) { unsigned long Log2; _BitScanReverse  (&Log2, (uint32)Value); return Log2; }
-static inline uint64 xFastLog2(uint64 Value) { unsigned long Log2; _BitScanReverse64(&Log2, (uint64)Value); return Log2; }
-#elif (X_PMBB_COMPILER_GCC || X_PMBB_COMPILER_CLANG)
-static inline uint32 xFastLog2(uint32 Value) { return 31 - __builtin_clz  (Value); }
-static inline uint64 xFastLog2(uint64 Value) { return 63 - __builtin_clzll(Value); }
-#else
-#error Unrecognized compiler
-#endif
+#if X_PMBB_CPP20
+static inline uint32 xFastLog2(uint32 Value) { assert(Value > 0); return 31 - std::countl_zero(Value); }
+static inline uint64 xFastLog2(uint64 Value) { assert(Value > 0); return 63 - std::countl_zero(Value); }
+#else //X_PMBB_CPP20
+  #if defined(X_PMBB_ARCH_AMD64) && (defined(X_PMBB_COMPILER_MSVC) || defined(X_PMBB_COMPILER_ICC))
+    #if X_SIMD_HAS_AVX
+static inline uint32 xFastLog2(uint32 Value) { assert(Value > 0); return 31 - __lzcnt  (Value); }
+static inline uint64 xFastLog2(uint64 Value) { assert(Value > 0); return 63 - __lzcnt64(Value); }
+    #else //X_SIMD_HAS_AVX
+static inline uint32 xFastLog2(uint32 Value) { assert(Value > 0); unsigned long Log2; _BitScanReverse  (&Log2, (uint32)Value); return Log2; }
+static inline uint64 xFastLog2(uint64 Value) { assert(Value > 0); unsigned long Log2; _BitScanReverse64(&Log2, (uint64)Value); return Log2; }
+    #endif //X_SIMD_HAS_AVX
+  #endif 
+  #if defined(X_PMBB_ARCH_ARM64) && defined(X_PMBB_COMPILER_MSVC)
+static inline uint32 xFastLog2(uint32 Value) { assert(Value > 0); return 31 - _CountLeadingZeros  (Value); }
+static inline uint64 xFastLog2(uint64 Value) { assert(Value > 0); return 63 - _CountLeadingZeros64(Value); }
+  #endif 
+  #if defined(X_PMBB_COMPILER_GCC) || defined(X_PMBB_COMPILER_CLANG)
+static inline uint32 xFastLog2(uint32 Value) { assert(Value > 0); return 31 - __builtin_clz  (Value); }
+static inline uint64 xFastLog2(uint64 Value) { assert(Value > 0); return 63 - __builtin_clzll(Value); }
+  #endif
+#endif //X_PMBB_CPP20
 
-//=============================================================================================================================================================================
-// Leading zero count
-//=============================================================================================================================================================================
-#if X_SIMD_HAS_AVX
-#if defined(X_PMBB_COMPILER_MSVC)
-static inline uint16 xLZCNT(uint16 Val) { return __lzcnt16(Val); }
-static inline uint32 xLZCNT(uint32 Val) { return __lzcnt  (Val); }
-static inline uint64 xLZCNT(uint64 Val) { return __lzcnt64(Val); }
-#elif defined(X_PMBB_COMPILER_GCC)
-static inline uint16 xLZCNT(uint16 Val) { return __builtin_ia32_lzcnt_u16(Val); }
-static inline uint32 xLZCNT(uint32 Val) { return __builtin_ia32_lzcnt_u32(Val); }
-static inline uint64 xLZCNT(uint64 Val) { return __builtin_ia32_lzcnt_u64(Val); }
-#elif defined(X_PMBB_COMPILER_CLANG)
-static inline uint16 xLZCNT(uint16 Val) { return __lzcnt16(Val); }
-static inline uint32 xLZCNT(uint32 Val) { return __lzcnt32(Val); }
-static inline uint64 xLZCNT(uint64 Val) { return __lzcnt64(Val); }
-#else
-#error Unrecognized compiler
-#endif
-#else //X_SIMD_HAS_AVX
-#if defined(X_PMBB_COMPILER_MSVC)
-static inline uint16 xLZCNT(uint16 Val) { unsigned long Index; return (uint16)(_BitScanReverse  (&Index, Val) ? (15 - Index) : 16); }
-static inline uint32 xLZCNT(uint32 Val) { unsigned long Index; return (uint32)(_BitScanReverse  (&Index, Val) ? (31 - Index) : 32); }
-static inline uint64 xLZCNT(uint64 Val) { unsigned long Index; return (uint64)(_BitScanReverse64(&Index, Val) ? (63 - Index) : 64); }
-#elif (defined(X_PMBB_COMPILER_GCC) || defined(X_PMBB_COMPILER_CLANG))
-static inline uint16 xLZCNT(uint16 Val) { return Val ? (uint16)__builtin_clz  (Val) : 16; }
-static inline uint32 xLZCNT(uint32 Val) { return Val ? (uint32)__builtin_clz  (Val) : 32; }
-static inline uint64 xLZCNT(uint64 Val) { return Val ? (uint64)__builtin_clzll(Val) : 64; }
-#else
-#error Unrecognized compiler
-#endif
-#endif //X_SIMD_HAS_AVX
-
-//=============================================================================================================================================================================
-// Num significant bits (similar to xLog2, but returns 0 for Val==0, uses faster (i.e. on Zen) lzcnt
-//=============================================================================================================================================================================
-static inline uint16 xNumSignificantBits(uint16 Val) { return 16 - xLZCNT(Val); }
-static inline uint32 xNumSignificantBits(uint32 Val) { return 32 - xLZCNT(Val); }
-static inline uint64 xNumSignificantBits(uint64 Val) { return 32 - xLZCNT(Val); }
-
-//uint16 xNumSignificantBits(uint16 Val)
-//{
-//  if(!Val) { return 0; }
-//
-//  int32 NumSigBits = 16;
-//  if (!(Val & 0xff00)) { NumSigBits -= 8; Val <<= 8; }
-//  if (!(Val & 0xf000)) { NumSigBits -= 4; Val <<= 4; }
-//  if (!(Val & 0xc000)) { NumSigBits -= 2; Val <<= 2; }
-//  if (!(Val & 0x8000)) { NumSigBits -= 1; Val <<= 1; }
-//
-//  return NumSigBits;
-//}
-//=============================================================================================================================================================================
-// Byte swap
-//=============================================================================================================================================================================
-#if X_PMBB_COMPILER_MSVC
-static inline uint16 xSwapBytes16(uint16 Value) { return _byteswap_ushort(Value); }
-static inline  int16 xSwapBytes16( int16 Value) { return _byteswap_ushort(Value); }
-static inline uint32 xSwapBytes32(uint32 Value) { return _byteswap_ulong (Value); }
-static inline  int32 xSwapBytes32( int32 Value) { return _byteswap_ulong (Value); }
-static inline uint64 xSwapBytes64(uint64 Value) { return _byteswap_uint64(Value); }
-static inline  int64 xSwapBytes64( int64 Value) { return _byteswap_uint64(Value); }
-#elif (X_PMBB_COMPILER_GCC || X_PMBB_COMPILER_CLANG)
-static inline uint16 xSwapBytes16(uint16 Value) { return __builtin_bswap16(Value); }
-static inline  int16 xSwapBytes16( int16 Value) { return __builtin_bswap16(Value); }
-static inline uint32 xSwapBytes32(uint32 Value) { return __builtin_bswap32(Value); }
-static inline  int32 xSwapBytes32( int32 Value) { return __builtin_bswap32(Value); }
-static inline uint64 xSwapBytes64(uint64 Value) { return __builtin_bswap64(Value); }
-static inline  int64 xSwapBytes64( int64 Value) { return __builtin_bswap64(Value); }
-#else
-#error Unrecognized compiler
-#endif
+static inline bool xIsPowerOf2(uint32 Value) { assert(Value > 0); return Value == (uint32)1 << xFastLog2(Value); }
 
 //===============================================================================================================================================================================================================
 // type safe memset & memcpy
 //===============================================================================================================================================================================================================
-template <class XXX> static inline void xMemsetX(XXX* Dst, const XXX  Val, uint32 Count) { if constexpr(sizeof(XXX) == 1) { std::memset(Dst, Val, Count); } else { for(uint32 i = 0; i < Count; i++) Dst[i] = Val; } }
-template <class XXX> static inline void xMemcpyX(XXX* Dst, const XXX* Src, uint32 Count) { std::memcpy(Dst, Src, Count*sizeof(XXX)); }
-
-//===============================================================================================================================================================================================================
-// Time is money
-//===============================================================================================================================================================================================================
-using tClock      = std::chrono::high_resolution_clock       ;
-using tTimePoint  = tClock::time_point                       ;
-using tDuration   = tClock::duration                         ;
-using tDurationUS = std::chrono::duration<double, std::micro>;
-using tDurationMS = std::chrono::duration<double, std::milli>;
-using tDurationS  = std::chrono::duration<double            >;
-
-// Time Stamp Counter
-#if (X_ARCHITECTURE_AMD64)
-  #define NoBarierRDTSC 0
-  #if NoBarierRDTSC
-    static inline uint64 xTSC() { return __rdtsc(); }
-    #define X_TSC_IMPLEMENTATION "RDTSC"
-  #else
-    static inline uint64 xTSC() { uint32 T;  return __rdtscp(&T); }
-    #define X_TSC_IMPLEMENTATION "RDTSCP"
-  #endif
-#else
-  static inline uint64 xTSC() { return (uint64)(tClock::now().time_since_epoch().count()); }
-  #define X_TSC_IMPLEMENTATION "std::chrono::high_resolution_clock"
-#endif
+template <class XXX> static inline void xMemsetX(XXX* Dst, const XXX  Val, uintSize Count) { if constexpr(sizeof(XXX) == 1 && std::is_integral_v<XXX>) { std::memset(Dst, Val, Count); } else { for(uintSize i = 0; i < Count; i++) Dst[i] = Val; } }
+template <class XXX> static inline void xMemcpyX(XXX* Dst, const XXX* Src, uintSize Count) { std::memcpy(Dst, Src, Count*sizeof(XXX)); }
 
 //===============================================================================================================================================================================================================
 // Math constants
@@ -290,19 +208,21 @@ template<class XXX> constexpr XXX xc_RadToDeg = XXX(180) / xc_Pi<XXX>;
 //===============================================================================================================================================================================================================
 // Multiple and remainder
 //===============================================================================================================================================================================================================
-static constexpr uint32 c_MultipleMask4    = 0xFFFFFFFC;
-static constexpr uint32 c_MultipleMask8    = 0xFFFFFFF8;
-static constexpr uint32 c_MultipleMask16   = 0xFFFFFFF0;
-static constexpr uint32 c_MultipleMask32   = 0xFFFFFFE0;
-static constexpr uint32 c_MultipleMask64   = 0xFFFFFFC0;
-static constexpr uint32 c_MultipleMask128  = 0xFFFFFF80;
+template<class XXX> constexpr XXX c_RemainderMask4   = 0x0003;
+template<class XXX> constexpr XXX c_RemainderMask8   = 0x0007;
+template<class XXX> constexpr XXX c_RemainderMask16  = 0x000F;
+template<class XXX> constexpr XXX c_RemainderMask32  = 0x001F;
+template<class XXX> constexpr XXX c_RemainderMask64  = 0x003F;
+template<class XXX> constexpr XXX c_RemainderMask128 = 0x007F;
+template<class XXX> constexpr XXX c_RemainderMask4k  = 0x0FFF;
 
-static constexpr uint32 c_RemainderMask4   = 0x00000003;
-static constexpr uint32 c_RemainderMask8   = 0x00000007;
-static constexpr uint32 c_RemainderMask16  = 0x0000000F;
-static constexpr uint32 c_RemainderMask32  = 0x0000001F;
-static constexpr uint32 c_RemainderMask64  = 0x0000003F;
-static constexpr uint32 c_RemainderMask128 = 0x0000007F;
+template<class XXX> constexpr XXX c_MultipleMask4   = ~c_RemainderMask4  <XXX>; //0xFFFFFFFC;
+template<class XXX> constexpr XXX c_MultipleMask8   = ~c_RemainderMask8  <XXX>; //0xFFFFFFF8;
+template<class XXX> constexpr XXX c_MultipleMask16  = ~c_RemainderMask16 <XXX>; //0xFFFFFFF0;
+template<class XXX> constexpr XXX c_MultipleMask32  = ~c_RemainderMask32 <XXX>; //0xFFFFFFE0;
+template<class XXX> constexpr XXX c_MultipleMask64  = ~c_RemainderMask64 <XXX>; //0xFFFFFFC0;
+template<class XXX> constexpr XXX c_MultipleMask128 = ~c_RemainderMask128<XXX>; //0xFFFFFF80;
+template<class XXX> constexpr XXX c_MultipleMask4k  = ~c_RemainderMask4k <XXX>; //0xFFFFF000;
 
 //===============================================================================================================================================================================================================
 // Common enums
@@ -328,7 +248,7 @@ enum class eCmp : int32 //component identifier
   B = 2,
 };
 
-enum class eCrF : int32 //chroma format
+enum class eCrF : int16 //chroma format
 {
   INVALID = NOT_VALID,
   UNKNOWN = 0,
@@ -371,15 +291,15 @@ enum class eClrSpcLC : int32 //colorspaces using luma and chromas
   YCoCgR    = 6,
 };
 
-enum class cMrgExt : int32 //picture margin extension mode // trying to be consistent with scipy.ndimage.generic_filter
+enum class eMrgExt : int32 //picture margin extension mode // trying to be consistent with numpy.pad and scipy.ndimage.generic_filter
 {
-  INVALID  = -1,
-  None     = 0,
-  Edge     = 1,
-  Nearest  = 1,
-  Reflect  = 2,
-  Mirror   = 3,
-  Constant = 4
+  INVALID   = -1,
+  None      = 0,
+  Edge      = 1, Nearest = 1, //( a a a a | a b c d | d d d d ) //numpy-edge     , scipy-nearest   
+  Symmetric = 2,              //( d c b a | a b c d | d c b a ) //numpy-symmetric, scipy-reflect
+  Reflect   = 3,              //(   d c b | a b c d | c b a   ) //numpy-reflect  , scipy-mirror
+  Constant  = 4,              //( k k k k | a b c d | k k k k )
+  Zero      = 5,              //( 0 0 0 0 | a b c d | 0 0 0 0 )
 };
 
 enum class eActn : int32

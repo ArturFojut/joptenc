@@ -14,6 +14,7 @@
 #include "../src/xPic.h"
 #include "../src/xPlane.h"
 #include "../src/xTestUtils.h"
+#include "xTimeUtils.h"
 
 using namespace PMBB_NAMESPACE;
 
@@ -30,9 +31,7 @@ static constexpr int32          c_NumRandomTests = 8;
 
 void testCopy()
 {
-  std::random_device RandomDevice;  //Will be used to obtain a seed for the random number engine
-  std::mt19937       RandomGenerator(RandomDevice()); //Standard mersenne_twister_engine seeded with rd()
-  std::uniform_int_distribution<uint32> RandomDistribution(0);
+  uint32 State = xTestUtils::c_XorShiftSeed;
 
   for(const int32 y : c_Dimms)
   {
@@ -51,10 +50,9 @@ void testCopy()
         for(int32 n = 0; n < c_NumRandomTests; n++)
         {          
           Src->fill(0);
-          uint32 Seed = RandomDistribution(RandomGenerator);
-          xTestUtils::fillRandom(Src->getAddr(), Src->getStride(), Src->getWidth(), Src->getHeight(), 14, Seed);
-          CAPTURE(Description + fmt::format(" Seed={}", Seed));
-
+          CAPTURE(Description + fmt::format(" State={}", State));
+          State = xTestUtils::fillRandom(Src->getAddr(), Src->getStride(), Src->getWidth(), Src->getHeight(), 14, State);
+          
           if(m == 0)
           {
             Dst->fill(0);
@@ -84,9 +82,7 @@ void testCvt(
   std::function<void(uint8* , const uint16*, int32, int32, int32, int32)>CvtU16toU8
   )
 {
-  std::random_device RandomDevice;  //Will be used to obtain a seed for the random number engine
-  std::mt19937       RandomGenerator(RandomDevice()); //Standard mersenne_twister_engine seeded with rd()
-  std::uniform_int_distribution<uint32> RandomDistribution(0);
+  uint32 State = xTestUtils::c_XorShiftSeed;
 
   for(const int32 y : c_Dimms)
   {
@@ -109,9 +105,8 @@ void testCvt(
 
         for(int32 n = 0; n < c_NumRandomTests; n++)
         {
-          uint32 Seed = RandomDistribution(RandomGenerator);
-          CAPTURE(Description + fmt::format(" Seed={}", Seed));
-          xTestUtils::fillRandom(Src->getAddr(), Src->getStride(), Src->getWidth(), Src->getHeight(), 8, Seed);
+          CAPTURE(Description + fmt::format(" State={}", State));
+          State = xTestUtils::fillRandom(Src->getAddr(), Src->getStride(), Src->getWidth(), Src->getHeight(), 8, State);
           CvtU16toU8(Imm->getAddr(), Src->getAddr(), Imm->getStride(), Src->getStride(), Imm->getWidth(), Imm->getHeight());
           CvtU8toU16(Dst->getAddr(), Imm->getAddr(), Dst->getStride(), Imm->getStride(), Dst->getWidth(), Dst->getHeight());
           CHECK(xTestUtils::isSameBuffer(Src->getBuffer(), Dst->getBuffer(), Dst->getBuffNumPels(), true));
@@ -145,9 +140,7 @@ void testResample(
   const int32V2& SizeMultiplier
 )
 {
-  std::random_device RandomDevice;  //Will be used to obtain a seed for the random number engine
-  std::mt19937       RandomGenerator(RandomDevice()); //Standard mersenne_twister_engine seeded with rd()
-  std::uniform_int_distribution<uint32> RandomDistribution(0);
+  uint32 State = xTestUtils::c_XorShiftSeed;
 
   for(const int32 y : c_Dimms)
   {
@@ -172,9 +165,8 @@ void testResample(
 
         for(int32 n = 0; n < c_NumRandomTests; n++)
         {
-          uint32 Seed = RandomDistribution(RandomGenerator);
-          CAPTURE(Description + fmt::format(" Seed={}", Seed));
-          xTestUtils::fillRandom(Src->getAddr(), Src->getStride(), Src->getWidth(), Src->getHeight(), 14, Seed);
+          CAPTURE(Description + fmt::format(" State={}", State));
+          State = xTestUtils::fillRandom(Src->getAddr(), Src->getStride(), Src->getWidth(), Src->getHeight(), 14, State);
           int64 SumSrc = xTestUtils::calcSum(Src->getAddr(), Src->getStride(), Src->getWidth(), Src->getHeight());
           Upsample  (Imm->getAddr(), Src->getAddr(), Imm->getStride(), Src->getStride(), Imm->getWidth(), Imm->getHeight());
           int64 SumImm = xTestUtils::calcSum(Imm->getAddr(), Imm->getStride(), Imm->getWidth(), Imm->getHeight());

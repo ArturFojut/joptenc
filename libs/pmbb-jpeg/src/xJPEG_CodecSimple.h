@@ -25,21 +25,22 @@ protected:
 
 //Profiling
 protected:
-  uint64 m_TotalPictureTicks   = 0;
-  uint64 m_TotalSliceTicks     = 0;
-  uint64 m_TotalMCUsTicks      = 0;
-  uint64 m_TotalTransformTicks = 0;
-  uint64 m_TotalQuantTicks     = 0;
-  uint64 m_TotalScanTicks      = 0;
-  uint64 m_TotalEntropyTicks   = 0;
-  uint64 m_TotalStuffingTicks  = 0;
+  uint64              m_Ticks__Picture = 0;
+  std::vector<uint64> m_Ticks____Slice;
+  std::vector<uint64> m_Ticks_____MCUs;
+  std::vector<uint64> m_TicksTransform;
+  std::vector<uint64> m_Ticks____Quant;
+  std::vector<uint64> m_Ticks_____Scan;
+  std::vector<uint64> m_Ticks__Entropy;
+  std::vector<uint64> m_Ticks_Stuffing;
+
 
 protected:
-  void     xCreate ();
+  void     xCreate (xThreadPool* ThreadPool);
   void     xDestroy();
 
 public:
-  std::string formatAndResetStats(const std::string Prefix);
+  std::string formatAndResetStats(const std::string Prefix, flt64 TicksPerMicroSec);
 };
 
 //=============================================================================================================================================================================
@@ -57,8 +58,8 @@ protected:
   xEntropyEncoderDefault m_EntropyEncDefault;
 
 public: 
-  void   create () { xCreate (); }
-  void   destroy() { xDestroy(); }       
+  void   create (xThreadPool* ThreadPool = nullptr) { xCreate (ThreadPool); }
+  void   destroy(                                 ) { xDestroy(          ); }       
 
   void   init  (int32V2 PictureSize, eCrF ChromaFormat, int32 Quality, int32 RestartInterval, bool EmitAPP0, bool EmitQuantTabs, bool EmitHuffmanTabs);
   void   encode(const xPicYUV* InputPicture, xByteBuffer* OutputBuffer);
@@ -78,8 +79,8 @@ protected:
   xEntropyDecoder m_EntropyDec;
 
 public: 
-  void   create () { xCreate (); }
-  void   destroy() { xDestroy(); }   
+  void   create (xThreadPool* ThreadPool = nullptr) { xCreate (ThreadPool); }
+  void   destroy(                                 ) { xDestroy(          ); }   
 
   void   init   (int32V2 PictureSize, eCrF ChromaFormat, int32 Quality, int32 RestartInterval);
   bool   init   (xByteBuffer* InputBuffer);
@@ -90,6 +91,29 @@ protected:
   void   xDecodeSlice  (xByteBuffer* InputBuffer, xPicYUV* OutputPicture, int32 MCU_IdxFirst, int32 MCU_IdxLast); //slice - a MCUs between begin, reset or end
   void   xDecodeMCU    (uint16* CmpPtrV[], const int32 CmpStrideV[], int32 MCU_Idx);
   void   xDecodeBlock  (uint16* SamplesDec, eCmp CmpId);
+};
+
+//=====================================================================================================================================================================================
+
+class xDecoderParallel : public xCodecSimple
+{
+protected:
+  std::vector<xByteBuffer    > m_SliceBuffers;
+  std::vector<xEntropyDecoder> m_EntropyDecs ;
+
+public: 
+  void   create (xThreadPool* ThreadPool = nullptr) { xCreate (ThreadPool); }
+  void   destroy(                                 ) { xDestroy(          ); }   
+
+  void   init   (int32V2 PictureSize, eCrF ChromaFormat, int32 Quality, int32 RestartInterval);
+  bool   init   (xByteBuffer* InputBuffer);
+  void   decode (xByteBuffer* InputBuffer, xPicYUV* OutputPicture); //assumes same parameters as previous valid one - does not parse headers
+  
+protected:
+  bool   xDecodePicture(xByteBuffer* InputBuffer, xPicYUV* OutputPicture);
+  void   xDecodeSlice  (xPicYUV* OutputPicture, int32 SliceIdx); //slice - a MCUs between begin, reset or end
+  void   xDecodeMCU    (uint16* CmpPtrV[], const int32 CmpStrideV[], int32 SliceIdx, int32 MCU_Idx);
+  void   xDecodeBlock  (uint16* SamplesDec, int32 SliceIdx, eCmp CmpId);
 };
 
 //=====================================================================================================================================================================================

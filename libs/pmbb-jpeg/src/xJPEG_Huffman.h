@@ -6,6 +6,8 @@
 #include "xCommonDefJPEG.h"
 #include "xJFIF.h"
 #include "xBitstream.h"
+#include <map>
+#include <queue>
 
 #define X_PMBB_JPEG_MULTI_LEVEL_LOOKAHEAD 0
 
@@ -15,8 +17,9 @@ namespace PMBB_NAMESPACE::JPEG {
 
 class xHuffCommon
 {
-protected:
-  static bool xInitEncoderTables(uint32* HuffCode, uint8* HuffLen, const xJFIF::xHuffTable& HuffTable);
+public:
+  static bool xInitHuffTables   (uint8* HuffLen, uint32* HuffCode, const xJFIF::xHuffTable& HuffTable);
+  static void xAvoidZeroLenCodes(uint8* HuffLen, int32 TableSize);
 
   static int32 xFillTmpLengths(uint8 * Lenghts, const xJFIF::xHuffTable::tCodeL& TabCodeLengths);
   static int32 xFillTmpCodes  (uint32* Codes  , const uint8* Lenghts, int32 NumLengths);
@@ -50,68 +53,7 @@ public:
     //return xCreateDerrivedDecoder(m_CodeSymbols, m_MaxCode, m_ValOffset, m_Lookup, HuffTable);
     return xInitTables(HuffTable);
   }
-#if X_PMBB_JPEG_MULTI_LEVEL_LOOKAHEAD
-  int32 readPrefix(xBitstreamReader* Bitstream)
-  {
-    uint32 Peek1st    = Bitstream->peekBits(c_LookAhead1st);
-    uint32 Lockup1st  = m_Lookup1st[Peek1st];
-    uint32 NumBits1st = Lockup1st >> c_LookAhead1st;
-
-    if(NumBits1st <= c_LookAhead1st)
-    {
-      Bitstream->skipBits(NumBits1st);
-      return Lockup1st & ((1 << c_LookAhead1st) - 1);
-    }
-    else
-    {
-      uint32 Peek2nd    = Bitstream->peekBits(c_LookAhead2nd);
-      uint32 Lockup2nd  = m_Lookup2nd[Peek2nd];
-      uint32 NumBits2nd = Lockup2nd >> c_LookAhead2nd;
-      if(NumBits2nd <= c_LookAhead2nd)
-      {
-        Bitstream->skipBits(NumBits2nd);
-        return Lockup2nd & ((1 << c_LookAhead2nd) - 1);
-      }
-      else
-      {
-        int32 S = Bitstream->readBits(NumBits2nd);
-        while(S > m_MaxCode[NumBits2nd])
-        {
-          S <<= 1;
-          S |= Bitstream->readBit();
-          NumBits2nd++;
-        }
-        S = m_CodeSymbols[(S + m_ValOffset[NumBits2nd]) & 0xFF];
-        return S;
-      }
-    }
-  }
-#else
-  int32 readPrefix(xBitstreamReader* Bitstream)
-  {
-    uint32 Peek    = Bitstream->peekBits(c_LookAhead);
-    uint32 Lockup  = m_Lookup[Peek];
-    uint32 NumBits = Lockup >> c_LookAhead;
-
-    if(NumBits <= c_LookAhead)
-    {
-      Bitstream->skipBits(NumBits);
-      return Lockup & ((1 << c_LookAhead) - 1);
-    }
-    else
-    {
-      int32 S = Bitstream->readBits(NumBits);
-      while(S > m_MaxCode[NumBits])
-      {
-        S <<= 1;
-        S |= Bitstream->readBit();
-        NumBits++;
-      }
-      S = m_CodeSymbols[(S + m_ValOffset[NumBits]) & 0xFF];
-      return S;
-    }    
-  }
-#endif
+  int32 readPrefix(xBitstreamReader* Bitstream);
   int32 readSufix(xBitstreamReader* Bitstream, int32 NumBits)
   {
     int32 R = Bitstream->readBits(NumBits);
@@ -139,8 +81,8 @@ protected:
   uint8  m_HuffLen [xJPEG_Constants::c_MaxNumCodeSymbolsDC];
 
 public:
-  bool init    (const xJFIF::xHuffTable& HuffTable) { if(HuffTable.getClass() != xJFIF::xHuffTable::eHuffClass::DC) { return false; } return xInitEncoderTables(m_HuffCode, m_HuffLen, HuffTable); }
-  void writeDC (xBitstreamWriter* Bitstream, int32 NumBits, uint32 Remainder) { Bitstream->writeBits(m_HuffCode[NumBits], m_HuffLen[NumBits]); Bitstream->writeBits(Remainder, NumBits); }
+  bool init    (const xJFIF::xHuffTable& HuffTable) { if(HuffTable.getClass() != xJFIF::xHuffTable::eHuffClass::DC) { return false; } return xInitHuffTables(m_HuffLen, m_HuffCode, HuffTable); }
+  void writeDC (xBitstreamWriter* Bitstream, int32 NumBits, uint32 Remainder) { Bitstream->writeBits(m_HuffCode[NumBits], m_HuffLen[NumBits]); if(NumBits) { Bitstream->writeBits(Remainder, NumBits); } }
 };
 
 class xHuffEncoderAC : public xHuffCommon
@@ -150,7 +92,7 @@ protected:
   uint8  m_HuffLen [xJPEG_Constants::c_MaxNumCodeSymbolsAC];
 
 public:
-  bool init    (xJFIF::xHuffTable& HuffTable) { if(HuffTable.getClass() != xJFIF::xHuffTable::eHuffClass::AC) { return false; } return xInitEncoderTables(m_HuffCode, m_HuffLen, HuffTable); }
+  bool init    (xJFIF::xHuffTable& HuffTable) { if(HuffTable.getClass() != xJFIF::xHuffTable::eHuffClass::AC) { return false; } return xInitHuffTables(m_HuffLen, m_HuffCode, HuffTable); }
   void writeAC (xBitstreamWriter* Bitstream, int32 Code, int32 NumBits, uint32 Remainder) { Bitstream->writeBits(m_HuffCode[Code], m_HuffLen[Code]); Bitstream->writeBits(Remainder, NumBits); }
   void writeZRL(xBitstreamWriter* Bitstream) { Bitstream->writeBits(m_HuffCode[0xF0], m_HuffLen[0xF0]); }
   void writeEOB(xBitstreamWriter* Bitstream) { Bitstream->writeBits(m_HuffCode[0x00], m_HuffLen[0x00]); }
@@ -164,13 +106,7 @@ protected:
   uint8 m_HuffLen [xJPEG_Constants::c_MaxNumCodeSymbolsDC];
 
 public:
-  bool init(const xJFIF::xHuffTable& HuffTable)
-  { 
-    uint32 HuffCode[xJPEG_Constants::c_MaxNumCodeSymbolsDC];
-    if(HuffTable.getClass() != xJFIF::xHuffTable::eHuffClass::DC) { return false; }
-    return xInitEncoderTables(HuffCode, m_HuffLen, HuffTable);
-  }
-
+  bool  init  (const xJFIF::xHuffTable& HuffTable);
   int32 calcDC(int32 NumBits) const { return m_HuffLen[NumBits] + NumBits; }
 };
 
@@ -180,13 +116,7 @@ protected:
   uint8  m_HuffLen [xJPEG_Constants::c_MaxNumCodeSymbolsAC];
 
 public:
-  bool init(const xJFIF::xHuffTable& HuffTable)
-  { 
-    uint32 HuffCode[xJPEG_Constants::c_MaxNumCodeSymbolsAC];
-    if(HuffTable.getClass() != xJFIF::xHuffTable::eHuffClass::AC) { return false; }
-    return xInitEncoderTables(HuffCode, m_HuffLen, HuffTable);
-  }
-
+  bool  init   (const xJFIF::xHuffTable& HuffTable);
   int32 calcAC (int32 Code, int32 NumBits) const { return m_HuffLen[Code] + NumBits; }
   int32 calcZRL() const { return m_HuffLen[0xF0]; }
   int32 calcEOB() const { return m_HuffLen[0x00]; }
@@ -197,23 +127,73 @@ public:
 class xHuffCounterDC
 {
 protected:
-  uint32 m_SymbolCount[xJPEG_Constants::c_MaxNumCodeSymbolsDC];
+  static constexpr int32 c_NCS = xJPEG_Constants::c_MaxNumCodeSymbolsDC;
+  uint32 m_SymbolCount[c_NCS];
 
 public:
-  bool init   (          ) { memset(m_SymbolCount, 0, xJPEG_Constants::c_MaxNumCodeSymbolsDC * sizeof(uint32)); return true; }
+  bool init   (          ) { memset(m_SymbolCount, 0, c_NCS * sizeof(uint32)); return true; }
   void countDC(int32 Code) { m_SymbolCount[Code]++; }
+  void acc    (const xHuffCounterDC* Other) { for(int32 i = 0; i < c_NCS; i++) { m_SymbolCount[i] += Other->m_SymbolCount[i]; } }
+  const uint32* getSymbolCount() const { return m_SymbolCount; }
 };
 
 class xHuffCounterAC
 {
 protected:
-  uint32 m_SymbolCount[xJPEG_Constants::c_MaxNumCodeSymbolsAC];
+  static constexpr int32 c_NCS = xJPEG_Constants::c_MaxNumCodeSymbolsAC;
+  uint32 m_SymbolCount[c_NCS];
 
 public:
-  bool init    (          ) { memset(m_SymbolCount, 0, xJPEG_Constants::c_MaxNumCodeSymbolsAC * sizeof(uint32)); return true; }
+  bool init    (          ) { memset(m_SymbolCount, 0, c_NCS * sizeof(uint32)); return true; }
   void countAC (int32 Code) { m_SymbolCount[Code]++; }
   void countZRL(          ) { m_SymbolCount[0xF0]++; }
   void countEOB(          ) { m_SymbolCount[0x00]++; }
+  void acc     (const xHuffCounterAC* Other) { for(int32 i = 0; i < c_NCS; i++) { m_SymbolCount[i] += Other->m_SymbolCount[i]; } }
+  const uint32* getSymbolCount() const { return m_SymbolCount; }
+};
+
+//=====================================================================================================================================================================================
+
+class xHuffmanTabBuilder
+{
+protected:
+  class xHuffTree
+  {
+  public:
+    int32 m_Symbol = NOT_VALID;
+    int64 m_Count  = NOT_VALID;
+
+    xHuffTree* m_Left  = nullptr;
+    xHuffTree* m_Right = nullptr;
+
+    xHuffTree(int16 Symbol, int32 Count) { m_Symbol = Symbol; m_Count = Count; m_Left = nullptr; m_Right = nullptr; }
+    xHuffTree(xHuffTree* L, xHuffTree* R) { m_Symbol = NOT_VALID; m_Count = L->m_Count + R->m_Count; m_Left = L; m_Right = R; }
+
+    ~xHuffTree()
+    {
+      if(m_Left  != nullptr) { delete m_Left ; }
+      if(m_Right != nullptr) { delete m_Right; }
+    }
+  };
+
+  struct Comparator { bool operator()(const xHuffTree* L, const xHuffTree* R) const 
+  {
+    if(L->m_Count == R->m_Count)
+    {
+      return L->m_Symbol < R->m_Symbol;
+    }
+    return L->m_Count > R->m_Count;
+  } };
+
+public:
+  static void buildLengthTable(uint8* LengthTable, const uint32* SymbolCount, int32 Size);
+
+protected:
+  static void  xCalcCodeLengths  (uint8* CodeLengths, xHuffTree* Node, int32 Length);
+  static flt64 xCalcAvgCodeLength(const uint8* CodeLength, const uint32* SymbolCount, int32 Size);
+
+public:
+  static flt64 calcAvgCodeLength (const xJFIF::xHuffTable& HuffTable, const uint32* SymbolCount);
 };
 
 //=====================================================================================================================================================================================

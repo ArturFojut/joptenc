@@ -23,6 +23,44 @@ int32 xEntropyCommon::findLastNonZeroAVX512(const int16* ScanCoeff)
 }
 #endif //X_SIMD_CAN_USE_AVX512
 
+#if X_SIMD_CAN_USE_AVX
+int32 xEntropyCommon::findLastNonZeroAVX(const int16* ScanCoeff)
+{
+  for(int32 i = 64 - 32; i >= 0; i -= 32)
+  {
+    __m256i CoeffsA = _mm256_loadu_si256((__m256i*) & ScanCoeff[i     ]);
+    __m256i CoeffsB = _mm256_loadu_si256((__m256i*) & ScanCoeff[i + 16]);
+    __m256i Coeffs  = _mm256_packs_epi16(CoeffsA, CoeffsB);
+    __m256i MaskErV = _mm256_cmpeq_epi8 (Coeffs, _mm256_setzero_si256());    
+    uint32  MaskEr  = (~_mm256_movemask_epi8(MaskErV)) & 0xFFFFFFFF;
+    if(MaskEr)
+    {
+      uint32 Mask = ((MaskEr & 0xFF0000FF) | ((MaskEr & 0x00FF0000) >> 8) | ((MaskEr & 0x0000FF00) << 8)); //swap central bytes
+      return (31 - (int32)xLZCNT(Mask)) + i;
+    }
+  }
+  //empty block but treeat DC as always existing
+  return 0;
+}
+#endif //X_SIMD_CAN_USE_AVX
+
+#if X_SIMD_CAN_USE_SSE
+int32 xEntropyCommon::findLastNonZeroSSE(const int16* ScanCoeff)
+{
+  for(int32 i = 64 - 16; i >= 0; i-=16)
+  {
+    __m128i CoeffsA = _mm_loadu_si128((__m128i*) & ScanCoeff[i    ]);
+    __m128i CoeffsB = _mm_loadu_si128((__m128i*) & ScanCoeff[i + 8]);
+    __m128i Coeffs  = _mm_packs_epi16(CoeffsA, CoeffsB);
+    __m128i MaskV   = _mm_cmpeq_epi8 (Coeffs, _mm_setzero_si128());
+    uint32  Mask    = (~_mm_movemask_epi8(MaskV)) & 0xFFFF;
+    if(Mask) { return (31 - (int32)xLZCNT(Mask)) + i; }
+  }
+  //empty block but treeat DC as always existing
+  return 0;
+}
+#endif //X_SIMD_CAN_USE_SSE
+
 int32 xEntropyCommon::findLastNonZeroSTD(const int16* ScanCoeff)
 {
   for(int32 i = 63; i >= 0; i--) { if(ScanCoeff[i] != 0) { return i; } }
@@ -64,7 +102,7 @@ void xEntropyDecoder::UnInit()
 }
 void xEntropyDecoder::StartSlice(xByteBuffer* ByteBuffer)
 {
-  xResetLastDC();
+  m_LastDC = c_InitLastDCs;
   m_Bitstream.bindByteBuffer(ByteBuffer);
   m_Bitstream.init();
 }
@@ -140,7 +178,7 @@ void xEntropyEncoder::UnInit()
 }
 void xEntropyEncoder::StartSlice(xByteBuffer* ByteBuffer)
 {
-  xResetLastDC();
+  m_LastDC = c_InitLastDCs;
   m_Bitstream.bindByteBuffer(ByteBuffer);
   m_Bitstream.init();
 }
@@ -149,6 +187,19 @@ void xEntropyEncoder::FinishSlice()
   m_Bitstream.writeAlign(1);
   m_Bitstream.uninit();
   m_Bitstream.unbindByteBuffer();
+}
+void xEntropyEncoder::StartChunk(xByteBuffer* ByteBuffer, const tLDCs& LastDCs)
+{
+  m_LastDC = LastDCs;
+  m_Bitstream.bindByteBuffer(ByteBuffer);
+  m_Bitstream.init();
+}
+int32 xEntropyEncoder::FinishChunk()
+{
+  int32 NumAlignmentBits = m_Bitstream.writeAlign(0);
+  m_Bitstream.uninit();
+  m_Bitstream.unbindByteBuffer();
+  return NumAlignmentBits;
 }
 void xEntropyEncoder::EncodeBlock(const int16* ScanCoeff, eCmp Cmp, int32 HuffTableIdDC, int32 HuffTableIdAC)
 {
@@ -159,7 +210,7 @@ void xEntropyEncoder::EncodeBlock(const int16* ScanCoeff, eCmp Cmp, int32 HuffTa
 
   int32 SignMaskDC = DeltaDC >> 31;                       // make a mask of the sign bit
   int32 AbsDeltaDC = (DeltaDC ^ SignMaskDC) - SignMaskDC; // toggle the bits and add one if value is negative
-  int32 NumBitsDC  = xNumBits(AbsDeltaDC);
+  int32 NumBitsDC  = xNumSignificantBits((uint32)AbsDeltaDC);
   int32 RemainDC   = (DeltaDC + SignMaskDC) & ((1 << NumBitsDC) - 1);  // subtract one if value was negative and mask off any extra bits in code
   m_HuffEncoderDC[HuffTableIdDC]->writeDC(&m_Bitstream, NumBitsDC, RemainDC);
 
@@ -180,7 +231,7 @@ void xEntropyEncoder::EncodeBlock(const int16* ScanCoeff, eCmp Cmp, int32 HuffTa
     //Emit Huffman symbol for run length / number of bits
     int32 SignMaskAC = AC >> 31;                       // make a mask of the sign bit
     int32 AbsAC      = (AC ^ SignMaskAC) - SignMaskAC; // toggle the bits and add one if value is negative
-    int32 NumBitsAC  = xNumBits(AbsAC);
+    int32 NumBitsAC  = xNumSignificantBits((uint32)AbsAC);
     int32 CodeAC     = (RunLength << 4) + NumBitsAC;
     int32 RemainAC   = (AC + SignMaskAC) & ((1 << NumBitsAC) - 1);  // subtract one if value was negative and mask off any extra bits in code
     HE->writeAC(&m_Bitstream, CodeAC, NumBitsAC, RemainAC);
@@ -196,7 +247,7 @@ void xEntropyEncoder::EncodeBlock(const int16* ScanCoeff, eCmp Cmp, int32 HuffTa
 
 void xEntropyEncoderDefault::StartSlice(xByteBuffer* ByteBuffer)
 {
-  xResetLastDC();
+  m_LastDC = c_InitLastDCs;
   m_Bitstream.bindByteBuffer(ByteBuffer);
   m_Bitstream.init();
 }
@@ -370,28 +421,14 @@ void xEntropyEstimator::UnInit()
     if(m_HuffEstimatorAC[HuffTableId] != nullptr) { delete m_HuffEstimatorAC[HuffTableId]; m_HuffEstimatorAC[HuffTableId] = nullptr; }
   }
 }
-int32 xEntropyEstimator::EstimateBlock(const int16* ScanCoeff, eCmp Cmp, int32 HuffTableIdDC, int32 HuffTableIdAC)
+int32 xEntropyEstimator::EstimateBlock(const int16* ScanCoeff, int32 LastDC, int32 HuffTableIdDC, int32 HuffTableIdAC) const
 {
   //DC coefficient
-  int32 DC             = ScanCoeff[0];
-  int32 DeltaDC        = DC - (int32)m_LastDC[(int32)Cmp];
-  m_LastDC[(int32)Cmp] = (int16)DC;
-
-  return xEstimateBlockCommon(ScanCoeff, DeltaDC, HuffTableIdDC, HuffTableIdAC);
-}
-int32 xEntropyEstimator::EstimateBlockStateless(const int16* ScanCoeff, int32 LastDC, int32 HuffTableIdDC, int32 HuffTableIdAC) const
-{
-  //DC coefficient
-  int32 DC         = ScanCoeff[0];
-  int32 DeltaDC    = DC - LastDC;
-
-  return xEstimateBlockCommon(ScanCoeff, DeltaDC, HuffTableIdDC, HuffTableIdAC);
-}
-int32 xEntropyEstimator::xEstimateBlockCommon(const int16* ScanCoeff, int32 DeltaDC, int32 HuffTableIdDC, int32 HuffTableIdAC) const
-{
-  int32 SignMaskDC = DeltaDC >> 31;                       // make a mask of the sign bit
-  int32 AbsDeltaDC = (DeltaDC ^ SignMaskDC) - SignMaskDC; // toggle the bits and add one if value is negative
-  int32 NumBitsDC  = xNumBits(AbsDeltaDC);
+  int32 DC          = ScanCoeff[0];
+  int32 DeltaDC     = DC - LastDC;
+  int32 SignMaskDC  = DeltaDC >> 31;                       // make a mask of the sign bit
+  int32 AbsDeltaDC  = (DeltaDC ^ SignMaskDC) - SignMaskDC; // toggle the bits and add one if value is negative
+  int32 NumBitsDC   = xNumSignificantBits((uint32)AbsDeltaDC);
   int32 CalcNumBits = m_HuffEstimatorDC[HuffTableIdDC]->calcDC(NumBitsDC);
 
   //AC coefficients
@@ -411,7 +448,51 @@ int32 xEntropyEstimator::xEstimateBlockCommon(const int16* ScanCoeff, int32 Delt
     //Emit Huffman symbol for run length / number of bits
     int32 SignMaskAC = AC >> 31;                       // make a mask of the sign bit
     int32 AbsAC      = (AC ^ SignMaskAC) - SignMaskAC; // toggle the bits and add one if value is negative
-    int32 NumBitsAC  = xNumBits(AbsAC);
+    int32 NumBitsAC  = xNumSignificantBits((uint32)AbsAC);
+    int32 CodeAC     = (RunLength << 4) + NumBitsAC;
+    CalcNumBits += HE->calcAC(CodeAC, NumBitsAC);
+
+    //reset run length
+    RunLength = 0;
+  }
+  //If the last coef(s) were zero, emit an end-of-block code
+  if (LastNonZero < 63) { CalcNumBits += HE->calcEOB(); }
+
+  return CalcNumBits;
+}
+int32 xEntropyEstimator::EstimateBlockDC(const int16* ScanCoeff, int32 LastDC, int32 HuffTableIdDC) const
+{
+  //DC coefficient
+  int32 DC          = ScanCoeff[0];
+  int32 DeltaDC     = DC - LastDC;
+  int32 SignMaskDC  = DeltaDC >> 31;                       // make a mask of the sign bit
+  int32 AbsDeltaDC  = (DeltaDC ^ SignMaskDC) - SignMaskDC; // toggle the bits and add one if value is negative
+  int32 NumBitsDC   = xNumSignificantBits((uint32)AbsDeltaDC);
+  int32 CalcNumBits = m_HuffEstimatorDC[HuffTableIdDC]->calcDC(NumBitsDC);
+  return CalcNumBits;
+}
+int32 xEntropyEstimator::EstimateBlockAC(const int16* ScanCoeff, int32 HuffTableIdAC) const
+{
+  int32 CalcNumBits = 0;
+
+  //AC coefficients
+  xHuffEstimatorAC* HE = m_HuffEstimatorAC[HuffTableIdAC];
+  int32 LastNonZero = findLastNonZero(ScanCoeff);
+  int32 RunLength   = 0;
+  for(int32 i=1; i <= LastNonZero; i++)
+  {
+    int32 AC = ScanCoeff[i];
+
+    //nothing to encode
+    if(AC == 0) { RunLength++; continue; }
+
+    //if run length > 15, must emit special run-length-16 codes (0xF0)
+    while (RunLength > 15) { CalcNumBits += HE->calcZRL(); RunLength -= 16; }
+
+    //Emit Huffman symbol for run length / number of bits
+    int32 SignMaskAC = AC >> 31;                       // make a mask of the sign bit
+    int32 AbsAC      = (AC ^ SignMaskAC) - SignMaskAC; // toggle the bits and add one if value is negative
+    int32 NumBitsAC  = xNumSignificantBits((uint32)AbsAC);
     int32 CodeAC     = (RunLength << 4) + NumBitsAC;
     CalcNumBits += HE->calcAC(CodeAC, NumBitsAC);
 
@@ -425,23 +506,20 @@ int32 xEntropyEstimator::xEstimateBlockCommon(const int16* ScanCoeff, int32 Delt
 }
 
 //=====================================================================================================================================================================================
+// xEntropyEstimatorDefault
+//=====================================================================================================================================================================================
 
-int32 xEntropyEstimatorDefault::EstimateBlock(const int16* ScanCoeff, eCmp Cmp)
+int32 xEntropyEstimatorDefault::EstimateBlock(const int16* ScanCoeff, int32 LastDC, eCmp Cmp)
 {
-  //DC coefficient
-  int32 DC             = ScanCoeff[0];
-  int32 DeltaDC        = DC - (int32)m_LastDC[(int32)Cmp];
-  m_LastDC[(int32)Cmp] = (int16)DC;
-
-  if(Cmp == eCmp::LM) { return xEstimateBlockCommonL(ScanCoeff, DeltaDC); }
-  else                { return xEstimateBlockCommonC(ScanCoeff, DeltaDC); }
+  if(Cmp == eCmp::LM) { return xEstimateBlockL(ScanCoeff, ScanCoeff[0] - LastDC); }
+  else                { return xEstimateBlockC(ScanCoeff, ScanCoeff[0] - LastDC); }
 }
-int32 xEntropyEstimatorDefault::xEstimateBlockCommonL(const int16* ScanCoeff, int32 DeltaDC)
+int32 xEntropyEstimatorDefault::xEstimateBlockL(const int16* ScanCoeff, int32 DeltaDC)
 {
   //DC coefficient
   int32 SignMaskDC = DeltaDC >> 31;                       // make a mask of the sign bit
   int32 AbsDeltaDC = (DeltaDC ^ SignMaskDC) - SignMaskDC; // toggle the bits and add one if value is negative
-  int32 NumBitsDC  = xNumBits((uint32)AbsDeltaDC);
+  int32 NumBitsDC  = xNumSignificantBits((uint32)(uint32)AbsDeltaDC);
   int32 CalcNumBits = xHuffDefaultEstimator::calcLumaDC(NumBitsDC);
 
   //AC coefficients
@@ -460,7 +538,7 @@ int32 xEntropyEstimatorDefault::xEstimateBlockCommonL(const int16* ScanCoeff, in
     //Emit Huffman symbol for run length / number of bits
     int32 SignMaskAC = AC >> 31;                       // make a mask of the sign bit
     int32 AbsAC      = (AC ^ SignMaskAC) - SignMaskAC; // toggle the bits and add one if value is negative
-    int32 NumBitsAC  = xNumBits(AbsAC);
+    int32 NumBitsAC  = xNumSignificantBits((uint32)AbsAC);
     CalcNumBits += xHuffDefaultEstimator::calcLumaAC(RunLength, NumBitsAC);
 
     //reset run length
@@ -471,7 +549,7 @@ int32 xEntropyEstimatorDefault::xEstimateBlockCommonL(const int16* ScanCoeff, in
 
   return CalcNumBits;
 }
-int32 xEntropyEstimatorDefault::xEstimateBlockCommonC(const int16* ScanCoeff, int32 DeltaDC)
+int32 xEntropyEstimatorDefault::xEstimateBlockC(const int16* ScanCoeff, int32 DeltaDC)
 {
   //DC coefficient
   int32 SignMaskDC = DeltaDC >> 31;                       // make a mask of the sign bit
@@ -508,11 +586,12 @@ int32 xEntropyEstimatorDefault::xEstimateBlockCommonC(const int16* ScanCoeff, in
 }
 
 //=====================================================================================================================================================================================
-
+// xEntropyCounter
+//=====================================================================================================================================================================================
 bool xEntropyCounter::Init(std::vector<xJFIF::xHuffTable>& HuffTables)
 {
   bool Result = true;
-  for(xJFIF::xHuffTable& HuffTable : HuffTables)
+  for(const xJFIF::xHuffTable& HuffTable : HuffTables)
   {
     xJFIF::xHuffTable::eHuffClass HuffTableClass = HuffTable.getClass();
     int32                         HuffTableId    = HuffTable.getIdx  ();
@@ -539,6 +618,14 @@ void xEntropyCounter::UnInit()
     if(m_HuffCounterAC[HuffTableId] != nullptr) { delete m_HuffCounterAC[HuffTableId]; m_HuffCounterAC[HuffTableId] = nullptr; }
   }
 }
+void xEntropyCounter::ZeroCounters()
+{
+  for(int32 i = 0; i < xJPEG_Constants::c_MaxHuffTabs; i++)
+  {
+    if(m_HuffCounterDC[i] != nullptr) { m_HuffCounterDC[i]->init(); }
+    if(m_HuffCounterAC[i] != nullptr) { m_HuffCounterAC[i]->init(); }
+  }
+}
 void xEntropyCounter::CountBlock(const int16* ScanCoeff, int32 LastDC, int32 HuffTableIdDC, int32 HuffTableIdAC)
 {
   //DC coefficient
@@ -546,7 +633,7 @@ void xEntropyCounter::CountBlock(const int16* ScanCoeff, int32 LastDC, int32 Huf
   int32 DeltaDC    = DC - LastDC;
   int32 SignMaskDC = DeltaDC >> 31;                       // make a mask of the sign bit
   int32 AbsDeltaDC = (DeltaDC ^ SignMaskDC) - SignMaskDC; // toggle the bits and add one if value is negative
-  int32 NumBitsDC  = xNumBits(AbsDeltaDC);
+  int32 NumBitsDC  = xNumSignificantBits((uint32)AbsDeltaDC);
   m_HuffCounterDC[HuffTableIdDC]->countDC(NumBitsDC);
 
   //AC coefficients
@@ -566,7 +653,7 @@ void xEntropyCounter::CountBlock(const int16* ScanCoeff, int32 LastDC, int32 Huf
     //Emit Huffman symbol for run length / number of bits
     int32 SignMaskAC = AC >> 31;                       // make a mask of the sign bit
     int32 AbsAC      = (AC ^ SignMaskAC) - SignMaskAC; // toggle the bits and add one if value is negative
-    int32 NumBitsAC  = xNumBits(AbsAC);
+    int32 NumBitsAC  = xNumSignificantBits((uint32)AbsAC);
     int32 CodeAC     = (RunLength << 4) + NumBitsAC;
     HE->countAC(CodeAC);
 
@@ -575,6 +662,14 @@ void xEntropyCounter::CountBlock(const int16* ScanCoeff, int32 LastDC, int32 Huf
   }
   //If the last coef(s) were zero, emit an end-of-block code
   if (LastNonZero < 63) { HE->countEOB(); }
+}
+void xEntropyCounter::AddCounters(const xEntropyCounter& Other)
+{
+  for(int32 i = 0; i < xJPEG_Constants::c_MaxHuffTabs; i++)
+  {
+    if(m_HuffCounterDC[i] != nullptr) { m_HuffCounterDC[i]->acc(Other.m_HuffCounterDC[i]); }
+    if(m_HuffCounterAC[i] != nullptr) { m_HuffCounterAC[i]->acc(Other.m_HuffCounterAC[i]); }
+  }
 }
 
 //=====================================================================================================================================================================================

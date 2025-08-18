@@ -50,7 +50,7 @@ endif() #PMBB_GENERATE_MULTI_MICROARCH_LEVEL_BINARIES
 #=========================================================================================================================================
 if(CMAKE_TESTING_ENABLED AND (NOT PMBB_GENERATE_MULTI_MICROARCH_LEVEL_BINARIES))
 
-  set(LIST_TESTS "Quant" "Scan" "Transform" "Entropy")
+  set(LIST_TESTS "Quant" "Scan" "Transform" "Entropy" "Huffman")
   foreach(TEST_NAME ${LIST_TESTS})
     project (${LIB_PMBB_JPEG_NAME}-TEST-${TEST_NAME})
     add_executable(${PROJECT_NAME} "")

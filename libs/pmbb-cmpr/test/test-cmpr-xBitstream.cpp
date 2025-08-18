@@ -103,7 +103,8 @@ void testBitStream()
         CHECK(1 == BitR.readBit());
       }
       uint32 DataG = (State & 0b00000010000000000000000000000000) >> 25;
-      CHECK(DataG == BitR.readAlign());
+      uint32 Expected = DataG == 0 ? 0 : (1 << BitR.getNumBitsUntilByteAligned()) - 1;
+      CHECK(Expected == BitR.readAlign());
     }
 
     State = xTestUtils::xXorShift32(State);

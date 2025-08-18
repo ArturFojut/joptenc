@@ -45,12 +45,12 @@ protected:
 class xHuffDefaultEncoder : public xHuffDefaultConstants
 {
 public:
-  static inline void  writeLumaDC   (xBitstreamWriter* Bitstream,                  int32 NumBits, uint32 Remainder) { Bitstream->writeBits(c_HuffCodeDefaultLumaDC  [NumBits], c_HuffLenDefaultLumaDC  [NumBits]); Bitstream->writeBits(Remainder, NumBits); }
+  static inline void  writeLumaDC   (xBitstreamWriter* Bitstream,                  int32 NumBits, uint32 Remainder) { Bitstream->writeBits(c_HuffCodeDefaultLumaDC  [NumBits], c_HuffLenDefaultLumaDC  [NumBits]); if(NumBits) { Bitstream->writeBits(Remainder, NumBits); } }
   static inline void  writeLumaAC   (xBitstreamWriter* Bitstream, int32 RunLength, int32 NumBits, uint32 Remainder) { int32 Code = xCalcCodeAC(RunLength, NumBits); Bitstream->writeBits(c_HuffCodeDefaultLumaAC[Code], c_HuffLenDefaultLumaAC[Code]); Bitstream->writeBits(Remainder, NumBits); }
   static inline void  writeLumaZRL  (xBitstreamWriter* Bitstream                                                  ) { Bitstream->writeBits(c_HuffCodeDefaultLumaZRL, c_HuffLenDefaultLumaZRL); }
   static inline void  writeLumaEOB  (xBitstreamWriter* Bitstream                                                  ) { Bitstream->writeBits(c_HuffCodeDefaultLumaEOB, c_HuffLenDefaultLumaEOB); }
 
-  static inline void  writeChromaDC (xBitstreamWriter* Bitstream,                  int32 NumBits, uint32 Remainder) { Bitstream->writeBits(c_HuffCodeDefaultChromaDC  [NumBits], c_HuffLenDefaultChromaDC  [NumBits]); Bitstream->writeBits(Remainder, NumBits); }
+  static inline void  writeChromaDC (xBitstreamWriter* Bitstream,                  int32 NumBits, uint32 Remainder) { Bitstream->writeBits(c_HuffCodeDefaultChromaDC  [NumBits], c_HuffLenDefaultChromaDC  [NumBits]); if(NumBits) { Bitstream->writeBits(Remainder, NumBits); } }
   static inline void  writeChromaAC (xBitstreamWriter* Bitstream, int32 RunLength, int32 NumBits, uint32 Remainder) { int32 Code = xCalcCodeAC(RunLength, NumBits); Bitstream->writeBits(c_HuffCodeDefaultChromaAC[Code], c_HuffLenDefaultChromaAC[Code]); Bitstream->writeBits(Remainder, NumBits); }
   static inline void  writeChromaZRL(xBitstreamWriter* Bitstream                                                  ) { Bitstream->writeBits(c_HuffCodeDefaultChromaZRL, c_HuffLenDefaultChromaZRL); }
   static inline void  writeChromaEOB(xBitstreamWriter* Bitstream                                                  ) { Bitstream->writeBits(c_HuffCodeDefaultChromaEOB, c_HuffLenDefaultChromaEOB); }

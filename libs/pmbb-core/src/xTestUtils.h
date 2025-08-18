@@ -15,16 +15,27 @@ namespace PMBB_NAMESPACE {
 class xTestUtils
 {
 public:
+  //pseudo-rng
   static inline uint32 xXorShift32(uint32 x) // Algorithm "xor" from p. 4 of Marsaglia, "Xorshift RNGs"
   {    
     x ^= x << 13;
     x ^= x >> 17;
-    x ^= x << 5;
+    x ^= x <<  5;
     return x;
   }
-
+  static inline uint64 xXorShift64(uint64 x)
+  {
+    x ^= x << 13;
+    x ^= x >>  7;
+    x ^= x << 17;
+    return x;
+  }
   static constexpr uint32 c_XorShiftSeed = 666; //very god seed
 
+  class xXorShiftGen32;
+  class xXorShiftGen64;
+
+  //utils
   static void   fillGradient1X(uint16* Dst, int32 DstStride, int32 Width, int32 Height, int32 BitDepth, int32 Offset);
   static void   fillGradient4X(uint16* Dst, int32 DstStride, int32 Width, int32 Height, int32 BitDepth, int32 Offset);
   static void   fillGradient1Y(uint16* Dst, int32 DstStride, int32 Width, int32 Height, int32 BitDepth, int32 Offset);
@@ -35,10 +46,10 @@ public:
 
   template<typename XXX> static bool isEqualValue(const XXX* Src, int32 SrcStride, int32 Width, int32 Height, XXX Value, bool Verbose = false);
 
-  template<typename XXX> static bool isSameBuffer(const XXX* Ref,                  const XXX* Cmp,                  int32 Area,                bool Verbose = false);
+  template<typename XXX> static bool isSameBuffer(const XXX* Ref,                  const XXX* Cmp,                  uint64 Area,                bool Verbose = false);
   template<typename XXX> static bool isSameBuffer(const XXX* Ref, int32 RefStride, const XXX* Cmp, int32 CmpStride, int32 Width, int32 Height, bool Verbose = false);
 
-  template<typename XXX> static bool isSimilarBuffer(const XXX* Ref,                  const XXX* Cmp,                  int32 Area,                XXX Threshold, bool Verbose = false);
+  template<typename XXX> static bool isSimilarBuffer(const XXX* Ref,                  const XXX* Cmp,                  uint64 Area,                XXX Threshold, bool Verbose = false);
   template<typename XXX> static bool isSimilarBuffer(const XXX* Ref, int32 RefStride, const XXX* Cmp, int32 CmpStride, int32 Width, int32 Height, XXX Threshold, bool Verbose = false);
 
   template<typename XXX> static int64 calcSum(const XXX* Src, int32 SrcStride, int32 Width, int32 Height);
@@ -72,7 +83,7 @@ template<typename XXX> uint32 xTestUtils::fillMidNoise(XXX* Dst, int32 DstStride
     {
       State = xXorShift32(State);
       int32 Noise = ((((int32)State) & MaxValueMask) - MidValue) >> (BitDepth - 2);
-      Dst[x] = (uint16)((MidValue + Noise + Offset) & MaxValueMask);
+      Dst[x] = (XXX)((MidValue + Noise + Offset) & MaxValueMask);
     }
     Dst += DstStride;
   }
@@ -96,9 +107,9 @@ template<typename XXX> bool xTestUtils::isEqualValue(const XXX* Src, int32 SrcSt
   }
   return true;
 }
-template<typename XXX> bool xTestUtils::isSameBuffer(const XXX* Ref, const XXX* Cmp, int32 Area, bool Verbose)
+template<typename XXX> bool xTestUtils::isSameBuffer(const XXX* Ref, const XXX* Cmp, uint64 Area, bool Verbose)
 {
-  for(int32 i = 0; i < Area; i++)
+  for(uint64 i = 0; i < Area; i++)
   {
     if(Ref[i] != Cmp[i])
     {
@@ -123,11 +134,11 @@ template<typename XXX> bool xTestUtils::isSameBuffer(const XXX* Ref, int32 RefSt
   }
   return true;
 }
-template<typename XXX> bool xTestUtils::isSimilarBuffer(const XXX* Ref, const XXX* Cmp, int32 Area, XXX Threshold, bool Verbose)
+template<typename XXX> bool xTestUtils::isSimilarBuffer(const XXX* Ref, const XXX* Cmp, uint64 Area, XXX Threshold, bool Verbose)
 {
   using IntermType = std::conditional_t<std::is_integral_v<XXX>, std::conditional_t<sizeof(XXX) <= 4, int32, int64>, XXX>;
 
-  for(int32 i = 0; i < Area; i++)
+  for(uint64 i = 0; i < Area; i++)
   {
     const IntermType AbsDiff = xAbs((IntermType)(Ref[i]) - (IntermType)(Cmp[i]));
     if(AbsDiff > Threshold)
@@ -166,6 +177,37 @@ template<typename XXX> int64 xTestUtils::calcSum(const XXX* Src, int32 SrcStride
   }
   return Sum;
 }
+
+//===============================================================================================================================================================================================================
+// Xor Shift generator - compatible with C++ Random number engine interface
+//===============================================================================================================================================================================================================
+class xTestUtils::xXorShiftGen32
+{
+protected:
+  uint32 m_State;
+
+public:
+  xXorShiftGen32(uint32 Seed = xTestUtils::c_XorShiftSeed) { m_State = Seed; }
+
+  uint32 operator()() { uint32 State = xTestUtils::xXorShift32(m_State); m_State = State; return State; }
+
+  static constexpr uint32 min() { return std::numeric_limits<uint32>::min(); }
+  static constexpr uint32 max() { return std::numeric_limits<uint32>::max(); }
+};
+
+class xTestUtils::xXorShiftGen64
+{
+protected:
+  uint64 m_State;
+
+public:
+  xXorShiftGen64(uint64 Seed = xTestUtils::c_XorShiftSeed) { m_State = Seed; }
+
+  uint64 operator()() { uint64 State = xTestUtils::xXorShift64(m_State); m_State = State; return State; }
+
+  static constexpr uint64 min() { return std::numeric_limits<uint64>::min(); }
+  static constexpr uint64 max() { return std::numeric_limits<uint64>::max(); }
+};
 
 //===============================================================================================================================================================================================================
 

@@ -15,7 +15,7 @@ namespace PMBB_NAMESPACE::JPEG {
 
 //=====================================================================================================================================================================================
 
-void xAdvancedEncoder::create(int32V2 PictureSize, eCrF ChromaFormat)
+void xAdvancedEncoder::create(int32V2 PictureSize, eCrF ChromaFormat, xThreadPool* ThreadPool)
 {
   initCodecCommon(PictureSize, ChromaFormat);
 
@@ -30,10 +30,16 @@ void xAdvancedEncoder::create(int32V2 PictureSize, eCrF ChromaFormat)
   }
 
   m_PicRec.create(PictureSize, 8, ChromaFormat, 16);
-  m_EntropyBuffer.create(256);
+
+  if(ThreadPool != nullptr)
+  {
+    m_ThPI.init(ThreadPool, m_PictureSize.getY(), m_PictureSize.getY());
+  }
 }
 void xAdvancedEncoder::destroy()
 {
+  m_ThPI.uninit();
+
   for(int32 CmpIdx = 0; CmpIdx < m_NumOfComponents; CmpIdx++)
   {
     xMemory::xAlignedFreeNull(m_CmpCoeffsTransOrg[CmpIdx]);
@@ -43,7 +49,7 @@ void xAdvancedEncoder::destroy()
     xMemory::xAlignedFreeNull(m_CmpCoeffsScanOpt [CmpIdx]);
   }
 
-  m_EntropyBuffer.destroy();
+  //m_EntropyBuffer.destroy();
   m_PicRec.destroy();
 }
 void xAdvancedEncoder::initBaseMarkers()
@@ -58,19 +64,19 @@ void xAdvancedEncoder::initQuant(int32 Quality, eQTLa QuantTabLayout)
   m_Quality = Quality;
 
   //init markers
-  m_QT.resize(2);
-  m_QT[0].Init(0, eCmp::LM, Quality, QuantTabLayout);
-  m_QT[1].Init(1, eCmp::CB, Quality, QuantTabLayout); //any chroma so use CB
+  m_QTs.resize(2);
+  m_QTs[0].Init(0, eCmp::LM, Quality, QuantTabLayout);
+  m_QTs[1].Init(1, eCmp::CB, Quality, QuantTabLayout); //any chroma so use CB
 
   if(m_VerboseLevel >= 6)
   {
-    std::string Dump = fmt::format("QuantizationTablesMain Num={}\n", m_QT.size());
-    for(int32 i = 0; i < (int32)m_QT.size(); i++) { Dump += fmt::format("  QuantTab_{:d}\n", i) + m_QT[i].Format("    "); }
-    fmt::print(Dump);
+    std::string Dump = fmt::format("QuantizationTablesMain Num={}\n", m_QTs.size());
+    for(int32 i = 0; i < (int32)m_QTs.size(); i++) { Dump += fmt::format("  QuantTab_{:d}\n", i) + m_QTs[i].Format("    "); }
+    fmt::print("{}", Dump);
   }
 
   //init toolbox
-  m_QuantMain.Init(m_QT);
+  m_QuantMain.Init(m_QTs);
   m_QuantAuxD.Init(0, eCmp::LM, Quality - 2, QuantTabLayout);
   m_QuantAuxD.Init(1, eCmp::CB, Quality - 2, QuantTabLayout); //any chroma so use CB
   m_QuantAuxI.Init(0, eCmp::LM, Quality + 2, QuantTabLayout);
@@ -79,37 +85,56 @@ void xAdvancedEncoder::initQuant(int32 Quality, eQTLa QuantTabLayout)
   if(m_VerboseLevel >= 6)
   {
     std::string Dump = fmt::format("QuantizerTablesMain\n");
-    for(int32 i = 0; i < (int32)m_QT.size(); i++)
+    for(int32 i = 0; i < (int32)m_QTs.size(); i++)
     {
       Dump += fmt::format("  Table_{}\n", i) + m_QuantMain.getQuantizer(i).FormatCoeffs("    ");
     }
     Dump += fmt::format("QuantizerTablesAux\n");
-    for(int32 i = 0; i < (int32)m_QT.size(); i++)
+    for(int32 i = 0; i < (int32)m_QTs.size(); i++)
     {
       Dump += fmt::format("  Table_{}\n", i) + m_QuantAuxD.getQuantizer(i).FormatCoeffs("    ");
     }
-    fmt::print(Dump);
+    fmt::print("{}", Dump);
   }
 }
 void xAdvancedEncoder::initEntropy(int32 RestartInterval)
 {
   //init markers
   m_RestartInterval = RestartInterval;
-  m_HT.resize(4);
-  m_HT[0].InitDefault(0, xJFIF::xHuffTable::eHuffClass::DC, eCmp::LM);
-  m_HT[1].InitDefault(0, xJFIF::xHuffTable::eHuffClass::AC, eCmp::LM);
-  m_HT[2].InitDefault(1, xJFIF::xHuffTable::eHuffClass::DC, eCmp::CB); //any chroma so use CB
-  m_HT[3].InitDefault(1, xJFIF::xHuffTable::eHuffClass::AC, eCmp::CB); //any chroma so use CB
+  m_HTs.resize(4);
+  m_HTs[0].InitDefault(0, xJFIF::xHuffTable::eHuffClass::DC, eCmp::LM);
+  m_HTs[1].InitDefault(0, xJFIF::xHuffTable::eHuffClass::AC, eCmp::LM);
+  m_HTs[2].InitDefault(1, xJFIF::xHuffTable::eHuffClass::DC, eCmp::CB); //any chroma so use CB
+  m_HTs[3].InitDefault(1, xJFIF::xHuffTable::eHuffClass::AC, eCmp::CB); //any chroma so use CB
 
   //init toolbox
-  m_EntropyEnc.Init(m_HT);
-  m_EntropyEst.Init(m_HT);
-
+  m_NumOfSlices    = RestartInterval > 0 ? (int32)std::ceil((flt64)m_NumMCUsInArea / (flt64)RestartInterval) : 1;
   m_NumMCUsInSlice = RestartInterval != 0 ? RestartInterval : m_NumMCUsInArea;
-  int32 NumBlocksInMCU = 0;
-  for(int32 CmpIdx = 0; CmpIdx < m_NumOfComponents; CmpIdx++) { NumBlocksInMCU += m_SampFactorHor[CmpIdx] * m_SampFactorVer[CmpIdx]; }
-  int32 MaxEncodedSliceSize = m_NumMCUsInSlice * NumBlocksInMCU * c_BA * 2;
-  m_EntropyBuffer.resize(MaxEncodedSliceSize);
+  int32 NumBlocksInMCU       = std::accumulate(m_NumBlocksInMCU.cbegin(), m_NumBlocksInMCU.cend(), 0);
+  int32 MaxEncodedSliceSize  = m_NumMCUsInSlice * NumBlocksInMCU * c_BA * 2;
+  int32 MaxEncodedMCURowSize = m_NumMCUsInWidth * NumBlocksInMCU * c_BA * 2;
+  int32 NumCounters          = m_ThPI.isActive() ? m_ThPI.getNumThreads() : 1;
+  bool  EncodeMCU_Rows       = RestartInterval == 0 && m_ThPI.isActive();
+  int32 NumEncoders          = !EncodeMCU_Rows ? m_NumOfSlices       : m_NumMCUsInHeight   ;
+  int32 EncBufferSize        = !EncodeMCU_Rows ? MaxEncodedSliceSize : MaxEncodedMCURowSize;
+
+  m_EntropyCnts.resize(NumCounters);
+
+  m_EntropyEncs = std::vector<xEntropyEncoder>(NumEncoders);
+  m_EncBuffers  .resize(NumEncoders);
+  m_SliceBuffers.resize(NumEncoders);
+
+  if(EncodeMCU_Rows)
+  {
+    m_NumAlignmentBits.resize(m_NumMCUsInHeight, 0);
+    const int32 CombineBufferSize = m_NumMCUsInArea * NumBlocksInMCU * c_BA * 2;
+    m_CombineBuffer.create(CombineBufferSize);
+  }
+
+  m_EntropyEst.Init(m_HTs);
+  for(int32 i = 0; i < (int32)m_EntropyEncs .size(); i++) { m_EntropyEncs [i].Init(m_HTs); }
+  for(int32 i = 0; i < (int32)m_EncBuffers  .size(); i++) { m_EncBuffers  [i].resize(EncBufferSize); }
+  for(int32 i = 0; i < (int32)m_SliceBuffers.size(); i++) { m_SliceBuffers[i].resize(EncBufferSize); }
 }
 void xAdvancedEncoder::setMarkerEmit(bool EmitAPP0, bool EmitQuantTabs, bool EmitHuffmanTabs)
 {
@@ -117,209 +142,184 @@ void xAdvancedEncoder::setMarkerEmit(bool EmitAPP0, bool EmitQuantTabs, bool Emi
   m_EmitQuantTabs = EmitQuantTabs  ;
   m_EmitHuffTabs  = EmitHuffmanTabs;
 }
-void xAdvancedEncoder::setRDOQ(bool OptimizeLuma, bool OptimizeChroma, bool ProcessZeroCoeffs, int32 NumBlockOptPasses)
+void xAdvancedEncoder::setQuantOpt(bool OptimizeLuma, bool OptimizeChroma, bool ProcessZeroCoeffs)
 { 
-  m_UseRDOQ           = (OptimizeLuma || OptimizeChroma) && NumBlockOptPasses>0;
-  m_OptimizeLuma      = OptimizeLuma;
-  m_OptimizeChroma    = OptimizeChroma;
-  m_ProcessZeroCoeffs = ProcessZeroCoeffs;
-  m_NumBlockOptPasses = NumBlockOptPasses;
-  if (m_UseRDOQ) { m_EntropyEst.Init(m_HT); }
+  m_UseRDOQ           = (OptimizeLuma || OptimizeChroma);
+  m_OptQuantLuma      = OptimizeLuma;
+  m_OptQuantChroma    = OptimizeChroma;
+  m_ProcessZeroCoeffs = ProcessZeroCoeffs;  
+}
+void xAdvancedEncoder::setHuffOpt(bool OptimizeHuffmanTables)
+{
+  m_OptHuffTables = OptimizeHuffmanTables;
+}
+void xAdvancedEncoder::setOptPass(int32 NumBlockOptPasses, int32 NumPicOptPasses)
+{
+  m_NumOptPassesBlock = NumBlockOptPasses;
+  m_NumOptPassesPic   = NumPicOptPasses  ;
 }
 void xAdvancedEncoder::encode(const xPicYUV* InputPicture, xByteBuffer* OutputBuffer)
 {
-  xJFIF::WriteSOI (OutputBuffer);
-  if(m_EmitAPP0       ) { xJFIF::WriteAPP0(OutputBuffer, m_APP0); }
-  if(m_EmitQuantTabs  ) { xJFIF::WriteDQT(OutputBuffer, m_QT); }
-  if(m_RestartInterval) { xJFIF::WriteDRI(OutputBuffer, m_RestartInterval); }
-  xJFIF::WriteSOF0(OutputBuffer, m_SOF0);
-  if(m_EmitHuffTabs   ) { xJFIF::WriteDHT(OutputBuffer, m_HT); }
-  xJFIF::WriteSOS (OutputBuffer, m_SOS);
   xEncodePicture(OutputBuffer, InputPicture);
-  xJFIF::WriteEOI(OutputBuffer);
 }
-xAdvancedEncoder::tDistBits xAdvancedEncoder::calcDistBits(const xPicYUV* Picture)
+//xAdvancedEncoder::tDistBits xAdvancedEncoder::calcDistBits(const xPicYUV* Picture)
+//{
+//  const int16* ConstCmpCoeffsTransOrg[] = { m_CmpCoeffsTransOrg[0], m_CmpCoeffsTransOrg[1], m_CmpCoeffsTransOrg[2], m_CmpCoeffsTransOrg[3] };
+//  const int16* ConstCmpCoeffsTransRec[] = { m_CmpCoeffsTransRec[0], m_CmpCoeffsTransRec[1], m_CmpCoeffsTransRec[2], m_CmpCoeffsTransRec[3] };
+//  const int16* ConstCmpCoeffsScan    [] = { m_CmpCoeffsScan    [0], m_CmpCoeffsScan    [1], m_CmpCoeffsScan    [2], m_CmpCoeffsScan    [3] };
+//
+//  xFwdTransformPic(m_CmpCoeffsTransOrg, Picture);
+//  xFwdQuantScanPic(m_CmpCoeffsScan    , ConstCmpCoeffsTransOrg, m_QuantMain);
+//  xInvScanQuantPic(m_CmpCoeffsTransRec, ConstCmpCoeffsScan    , m_QuantMain);
+//  xInvTransformPic(&m_PicRec          , ConstCmpCoeffsTransRec);
+//  int64V4 EstNumBits = xHuffEstPic (ConstCmpCoeffsScan);
+//  int64V4 Distortion = xCalcPicSSDs(Picture, &m_PicRec);
+//
+//  return std::make_tuple(Distortion, EstNumBits);
+//}
+std::string xAdvancedEncoder::formatAndResetStats(const std::string Prefix, flt64 TicksPerMicroSec)
 {
-  const int16* ConstCmpCoeffsTransOrg[] = { m_CmpCoeffsTransOrg[0], m_CmpCoeffsTransOrg[1], m_CmpCoeffsTransOrg[2], m_CmpCoeffsTransOrg[3] };
-  const int16* ConstCmpCoeffsTransRec[] = { m_CmpCoeffsTransRec[0], m_CmpCoeffsTransRec[1], m_CmpCoeffsTransRec[2], m_CmpCoeffsTransRec[3] };
-  const int16* ConstCmpCoeffsScan    [] = { m_CmpCoeffsScan    [0], m_CmpCoeffsScan    [1], m_CmpCoeffsScan    [2], m_CmpCoeffsScan    [3] };
+  if(!m_GatherTimeStats      ) { return "Time stats gathering is disabled!"; }
+  if(m_TotalPictureIters == 0) { return "No time stats gathered!"; }
 
-  xFwdTransformPic(m_CmpCoeffsTransOrg, Picture);
-  xFwdQuantScanPic(m_CmpCoeffsScan    , ConstCmpCoeffsTransOrg, m_QuantMain);
-  xInvScanQuantPic(m_CmpCoeffsTransRec, ConstCmpCoeffsScan    , m_QuantMain);
-  xInvTransformPic(&m_PicRec          , ConstCmpCoeffsTransRec);
-  int64V4 EstNumBits = xHuffEstPic (ConstCmpCoeffsScan);
-  int64V4 Distortion = xCalcPicSSDs(Picture, &m_PicRec);
+  flt64 InvDenom = TicksPerMicroSec == 0.0 ? (flt64)1.0 / ((flt64)m_TotalPictureIters) : (flt64)1.0 / ((flt64)m_TotalPictureIters * TicksPerMicroSec);
 
-  return std::make_tuple(Distortion, EstNumBits);
-}
-std::string xAdvancedEncoder::formatAndResetStats(const std::string Prefix)
-{
-  if(m_TotalPictureIters == 0) { return std::string(); }
+  std::string TimeStats; TimeStats.reserve(xMemory::c_MemSizePageBase);
+  TimeStats += Prefix + fmt::format("Processing time {}\n", TicksPerMicroSec == 0.0 ? "[ticks]" : "[us]");
 
-  std::string Result = std::string(); Result.reserve(xMemory::c_MemSizePageBase);
-
-  tDurationUS AvgPictureTime   = std::chrono::duration_cast<tDurationUS>(m_TotalPictureTime  ) / m_TotalPictureIters;
-  tDurationUS AvgTransformTime = std::chrono::duration_cast<tDurationUS>(m_TotalTransformTime) / m_TotalPictureIters;
-  tDurationUS AvgQuantScanTime = std::chrono::duration_cast<tDurationUS>(m_TotalQuantScanTime) / m_TotalPictureIters;
-  tDurationUS AvgLambdaTime    = std::chrono::duration_cast<tDurationUS>(m_TotalLambdaTime   ) / m_TotalPictureIters;
-  tDurationUS AvgOptimizeTime  = std::chrono::duration_cast<tDurationUS>(m_TotalOptimizeTime ) / m_TotalPictureIters;
-  tDurationUS AvgEntropyTime   = std::chrono::duration_cast<tDurationUS>(m_TotalEntropyTime  ) / m_TotalPictureIters;
-  tDurationUS AvgStuffingTime  = std::chrono::duration_cast<tDurationUS>(m_TotalStuffingTime ) / m_TotalPictureIters;
-
-  Result += Prefix;
-  Result += fmt::format("PicIters={} "          , m_TotalPictureIters);
-  Result += fmt::format("PicT={:.0f}us "        , AvgPictureTime  .count());
-  Result += fmt::format("TrnsT={:.0f}us "       , AvgTransformTime.count());
-  Result += fmt::format("QuantScanT={:.0f}us "  , AvgQuantScanTime.count());
-  Result += fmt::format("LmbdT={:.0f}us "       , AvgLambdaTime   .count());
-  Result += fmt::format("RateDistOptT={:.0f}us ", AvgOptimizeTime .count());
-  Result += fmt::format("EntrT={:.0f}us "       , AvgEntropyTime  .count());
-  Result += fmt::format("StffT={:.0f}us "       , AvgStuffingTime .count());
+  TimeStats += Prefix + "  " + fmt::format("PicIters   = {}\n"    , m_TotalPictureIters);
+  TimeStats += Prefix + "  " + fmt::format("Pic        = {:.2f}\n", m_Ticks___Picture * InvDenom);
+  TimeStats += Prefix + "  " + fmt::format("Transform  = {:.2f}\n", m_Ticks_Transform * InvDenom);
+  TimeStats += Prefix + "  " + fmt::format("QuantScan  = {:.2f}\n", m_Ticks_QuantScan * InvDenom);
+  TimeStats += Prefix + "  " + fmt::format("LambdaEst  = {:.2f}\n", m_Ticks____Lambda * InvDenom);
+  TimeStats += Prefix + "  " + fmt::format("OptQuant   = {:.2f}\n", m_Ticks__OptQuant * InvDenom);
+  TimeStats += Prefix + "  " + fmt::format("OptHuff    = {:.2f}\n", m_Ticks___OptHuff * InvDenom);
+  TimeStats += Prefix + "  " + fmt::format("EntropyEnc = {:.2f}\n", m_TicksEntropyEnc * InvDenom);
+  TimeStats += Prefix + "  " + fmt::format("Tables     = {:.2f}\n", m_Ticks____Tables * InvDenom);
+  TimeStats += Prefix + "  " + fmt::format("WriteOut   = {:.2f}\n", m_Ticks__WriteOut * InvDenom);
   
-  m_TotalPictureTime   = (tDuration)0;
-  m_TotalTransformTime = (tDuration)0;
-  m_TotalQuantScanTime = (tDuration)0;
-  m_TotalLambdaTime    = (tDuration)0;
-  m_TotalOptimizeTime  = (tDuration)0;
-  m_TotalEntropyTime   = (tDuration)0;
-  m_TotalStuffingTime  = (tDuration)0;
+  m_Ticks_Transform = 0;
+  m_Ticks_QuantScan = 0;
+  m_Ticks____Lambda = 0;
+  m_Ticks__OptQuant = 0;
+  m_Ticks___OptHuff = 0;
+  m_TicksEntropyEnc = 0;
+  m_Ticks____Tables = 0;
+  m_Ticks__WriteOut = 0;
 
   m_TotalPictureIters = 0;
   m_TotalSliceIters   = 0;
 
-  return Result;
+  return TimeStats;
 }
 
 //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-void xAdvancedEncoder::xEncodePicture(xByteBuffer* Buffer, const xPicYUV* Picture)
+void xAdvancedEncoder::xEncodePicture(xByteBuffer* OutputBuffer, const xPicYUV* Picture)
 {
   const int16* ConstCmpCoeffsTransOrg[] = { m_CmpCoeffsTransOrg[0], m_CmpCoeffsTransOrg[1], m_CmpCoeffsTransOrg[2], m_CmpCoeffsTransOrg[3] };
-  const int16* ConstCmpCoeffsTransRec[] = { m_CmpCoeffsTransRec[0], m_CmpCoeffsTransRec[1], m_CmpCoeffsTransRec[2], m_CmpCoeffsTransRec[3] };
   const int16* ConstCmpCoeffsScan    [] = { m_CmpCoeffsScan    [0], m_CmpCoeffsScan    [1], m_CmpCoeffsScan    [2], m_CmpCoeffsScan    [3] };
-  const int16* ConstCmpCoeffsScanAux [] = { m_CmpCoeffsScanAux [0], m_CmpCoeffsScanAux [1], m_CmpCoeffsScanAux [2], m_CmpCoeffsScanAux [3] };
   const int16* ConstCmpCoeffsScanOpt [] = { m_CmpCoeffsScanOpt [0], m_CmpCoeffsScanOpt [1], m_CmpCoeffsScanOpt [2], m_CmpCoeffsScanOpt [3] };
 
-  tTimePoint TP0 = m_GatherTimeStats ? tClock::now() : tTimePoint();
+  if(m_OptHuffTables)
+  {
+    m_HTs[0].InitDefault(0, xJFIF::xHuffTable::eHuffClass::DC, eCmp::LM);
+    m_HTs[1].InitDefault(0, xJFIF::xHuffTable::eHuffClass::AC, eCmp::LM);
+    m_HTs[2].InitDefault(1, xJFIF::xHuffTable::eHuffClass::DC, eCmp::CB); //any chroma so use CB
+    m_HTs[3].InitDefault(1, xJFIF::xHuffTable::eHuffClass::AC, eCmp::CB); //any chroma so use CB
+  }
+
+  uint64 TP0 = m_GatherTimeStats ? xTSC() : 0;
 
   xFwdTransformPic(m_CmpCoeffsTransOrg, Picture);
 
-  tTimePoint TP1 = m_GatherTimeStats ? tClock::now() : tTimePoint();
+  uint64 TP1 = m_GatherTimeStats ? xTSC() : 0;
 
   xFwdQuantScanPic(m_CmpCoeffsScan, ConstCmpCoeffsTransOrg, m_QuantMain);
 
-  tTimePoint TP2 = m_GatherTimeStats ? tClock::now() : tTimePoint();
+  uint64 TP2 = m_GatherTimeStats ? xTSC() : 0;
 
-  if(m_UseRDOQ)
+  if(m_UseRDOQ) { xEstimateLambda(Picture); }
+
+  uint64 TP3 = m_GatherTimeStats ? xTSC() : 0;
+
+  for(int32 n = 0; n < m_NumOptPassesPic; n++)
   {
-    //base point
-    xInvScanQuantPic(m_CmpCoeffsTransRec, ConstCmpCoeffsScan, m_QuantMain);
-    xInvTransformPic(&m_PicRec          , ConstCmpCoeffsTransRec);
-    int64V4 EstNumBitsMain = xHuffEstPic (ConstCmpCoeffsScan);
-    int64V4 DistortionMain = xCalcPicSSDs(Picture, &m_PicRec);
+    uint64 TPo0 = m_GatherTimeStats ? xTSC() : 0;
 
-    //lower point
-    int64V4 EstNumBitsAuxD = { 0,0,0,0 };
-    int64V4 DistortionAuxD = { 0,0,0,0 };
-    if(m_Quality > 1)
-    {
-      xFwdQuantScanPic(m_CmpCoeffsScanAux , ConstCmpCoeffsTransOrg, m_QuantAuxD);
-      xInvScanQuantPic(m_CmpCoeffsTransRec, ConstCmpCoeffsScanAux , m_QuantAuxD);
-      xInvTransformPic(&m_PicRec          , ConstCmpCoeffsTransRec);
-      EstNumBitsAuxD = xHuffEstPic (ConstCmpCoeffsScanAux);
-      DistortionAuxD = xCalcPicSSDs(Picture, &m_PicRec);
-    }
-    
-    //higher point
-    int64V4 EstNumBitsAuxI = { 0,0,0,0 };
-    int64V4 DistortionAuxI = { 0,0,0,0 };
-    if(m_Quality < 100)
-    {
-      xFwdQuantScanPic(m_CmpCoeffsScanAux, ConstCmpCoeffsTransOrg, m_QuantAuxI);
-      xInvScanQuantPic(m_CmpCoeffsTransRec, ConstCmpCoeffsScanAux, m_QuantAuxI);
-      xInvTransformPic(&m_PicRec, ConstCmpCoeffsTransRec);
-      EstNumBitsAuxI = xHuffEstPic(ConstCmpCoeffsScanAux);
-      DistortionAuxI = xCalcPicSSDs(Picture, &m_PicRec);
-    }
+    if(m_UseRDOQ) { xOptQuantPic(m_CmpCoeffsScanOpt, ConstCmpCoeffsScan, Picture); }
 
-    //local lambda
-    int64V4 DeltaEstNumBitsD = EstNumBitsMain - EstNumBitsAuxD;
-    int64V4 DeltaDistortionD = DistortionMain - DistortionAuxD;
-    int64V4 DeltaEstNumBitsI = EstNumBitsMain - EstNumBitsAuxI;
-    int64V4 DeltaDistortionI = DistortionMain - DistortionAuxI;
+    uint64 TPo1 = m_GatherTimeStats ? xTSC() : 0;
 
-    flt64V4 LambdaD = -(flt64V4)DeltaDistortionD / (flt64V4)DeltaEstNumBitsD;
-    flt64V4 LambdaI = -(flt64V4)DeltaDistortionI / (flt64V4)DeltaEstNumBitsI;
-    if     (m_Quality > 1 && m_Quality < 100) { m_Lambda = (LambdaD + LambdaI) / 2.0; }
-    else if(m_Quality > 1                   ) { m_Lambda = LambdaD; }
-    else if(m_Quality < 100                 ) { m_Lambda = LambdaI; }
+    if(m_OptHuffTables) { xOptHuffPic(m_UseRDOQ ? ConstCmpCoeffsScanOpt : ConstCmpCoeffsScan); }
 
-    if(m_VerboseLevel >= 5)
-    {
-      std::string Dump = "LambdaEstimation\n";
-      Dump += fmt::format("QuantMain EstNumBits={:d} {:d} {:d}    Distortion={:d} {:d} {:d}\n", EstNumBitsMain[0], EstNumBitsMain[1], EstNumBitsMain[2], DistortionMain[0], DistortionMain[1], DistortionMain[2]);
-      Dump += fmt::format("QuantAuxD EstNumBits={:d} {:d} {:d}    Distortion={:d} {:d} {:d}\n", EstNumBitsAuxD[0], EstNumBitsAuxD[1], EstNumBitsAuxD[2], DistortionAuxD[0], DistortionAuxD[1], DistortionAuxD[2]);
-      Dump += fmt::format("QuantAuxI EstNumBits={:d} {:d} {:d}    Distortion={:d} {:d} {:d}\n", EstNumBitsAuxI[0], EstNumBitsAuxI[1], EstNumBitsAuxI[2], DistortionAuxI[0], DistortionAuxI[1], DistortionAuxI[2]);
-      Dump += fmt::format("LambdaD = {} {} {}\n", LambdaD[0], LambdaD[1], LambdaD[2]);
-      Dump += fmt::format("LambdaI = {} {} {}\n", LambdaI[0], LambdaI[1], LambdaI[2]);
-      Dump += fmt::format("Lambda  = {} {} {}\n", m_Lambda[0], m_Lambda[1], m_Lambda[2]);
-      fmt::print(Dump);
-    }
+    if(m_GatherTimeStats) { m_Ticks__OptQuant += TPo1 - TPo0; m_Ticks___OptHuff += xTSC() - TPo1; }
   }
 
-  tTimePoint TP3 = m_GatherTimeStats ? tClock::now() : tTimePoint();
+  uint64 TP4 = m_GatherTimeStats ? xTSC() : 0;
 
-  if(m_UseRDOQ)
+  xHuffEncPic(m_UseRDOQ ? ConstCmpCoeffsScanOpt : ConstCmpCoeffsScan);
+
+  uint64 TP5 = m_GatherTimeStats ? xTSC() : 0;
+
+  xJFIF::WriteSOI(OutputBuffer);
+  if(m_EmitAPP0       ) { xJFIF::WriteAPP0(OutputBuffer, m_APP0); }
+  if(m_EmitQuantTabs  ) { xJFIF::WriteDQT(OutputBuffer, m_QTs); }
+  if(m_RestartInterval) { xJFIF::WriteDRI(OutputBuffer, m_RestartInterval); }
+  xJFIF::WriteSOF0(OutputBuffer, m_SOF0);
+  if(m_EmitHuffTabs   ) { xJFIF::WriteDHT(OutputBuffer, m_HTs); }
+
+  uint64 TP6 = m_GatherTimeStats ? xTSC() : 0;
+
+  xJFIF::WriteSOS(OutputBuffer, m_SOS);
+  xWritePic(OutputBuffer);
+  xJFIF::WriteEOI(OutputBuffer);
+
+  uint64 TP7 = m_GatherTimeStats ? xTSC() : 0;
+  
+  m_TotalPictureIters += 1;
+  if(m_GatherTimeStats)
   {
-    xOptimizePic(m_CmpCoeffsScanOpt, ConstCmpCoeffsScan, Picture);
-
-    if(!m_OptimizeLuma)
-    {
-      const int32 AreaLm = m_MCUsMulWidth[(int32)eCmp::LM] * m_MCUsMulHeight[(int32)eCmp::LM];
-      memcpy(m_CmpCoeffsScanOpt[(int32)eCmp::LM], m_CmpCoeffsScan[(int32)eCmp::LM], AreaLm * sizeof(int16));
-    }
-    if(!m_OptimizeChroma)
-    {
-      const int32 AreaCb = m_MCUsMulWidth[(int32)eCmp::CB] * m_MCUsMulHeight[(int32)eCmp::CB];
-      memcpy(m_CmpCoeffsScanOpt[(int32)eCmp::CB], m_CmpCoeffsScan[(int32)eCmp::CB], AreaCb * sizeof(int16));
-      const int32 AreaCr = m_MCUsMulWidth[(int32)eCmp::CR] * m_MCUsMulHeight[(int32)eCmp::CR];
-      memcpy(m_CmpCoeffsScanOpt[(int32)eCmp::CR], m_CmpCoeffsScan[(int32)eCmp::CR], AreaCr * sizeof(int16));
-    }
+    m_Ticks___Picture += TP6 - TP0;
+    m_Ticks_Transform += TP1 - TP0;
+    m_Ticks_QuantScan += TP2 - TP1;
+    m_Ticks____Lambda += TP3 - TP2;
+    m_TicksEntropyEnc += TP5 - TP4;
+    m_Ticks____Tables += TP6 - TP5;
+    m_Ticks__WriteOut += TP7 - TP6;
   }
-  
-  tTimePoint TP4 = m_GatherTimeStats ? tClock::now() : tTimePoint();
-
-  xHuffEncPic(Buffer, m_UseRDOQ ? ConstCmpCoeffsScanOpt : ConstCmpCoeffsScan);
-
-  tTimePoint TP5 = m_GatherTimeStats ? tClock::now() : tTimePoint();
-  
-  m_TotalPictureIters  += 1;
-  m_TotalPictureTime   += TP5 - TP0;
-  m_TotalTransformTime += TP1 - TP0;
-  m_TotalQuantScanTime += TP2 - TP1;
-  m_TotalLambdaTime    += TP3 - TP2;
-  m_TotalOptimizeTime  += TP4 - TP3;
 }
+
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 int64V4 xAdvancedEncoder::xCalcPicSSDs(const xPicYUV* Tst, const xPicYUV* Ref)
 {
   int64V4 SSDs = xMakeVec4<int64>(0);
   for(int32 CmpIdx = 0; CmpIdx < m_NumOfComponents; CmpIdx++)
-  {
-    eCmp c = (eCmp)CmpIdx;
-    SSDs[CmpIdx] = xDistortion::CalcSSD(Tst->getAddr(c), Ref->getAddr(c), Tst->getStride(c), Ref->getStride(c), Tst->getWidth(c), Tst->getHeight(c));
+  {    
+    m_ThPI.storeTask([&SSDs, &Tst, &Ref, CmpIdx] (int32 /*ThIdx*/) { eCmp c = (eCmp)CmpIdx; SSDs[CmpIdx] = xDistortion::CalcSSD(Tst->getAddr(c), Ref->getAddr(c), Tst->getStride(c), Ref->getStride(c), Tst->getWidth(c), Tst->getHeight(c)); });
   }
+  m_ThPI.executeStoredTasks();
+
   return SSDs;
 }
-
 void xAdvancedEncoder::xFwdTransformPic(int16* CoeffsTransV[], const xPicYUV* Picture)
 {
   const uint16* CmpPtrV   [] = {Picture->getAddr  (eCmp::LM), Picture->getAddr  (eCmp::CB), Picture->getAddr  (eCmp::CR), nullptr};
   const int32   CmpStrideV[] = {Picture->getStride(eCmp::LM), Picture->getStride(eCmp::CB), Picture->getStride(eCmp::CR),       0};
 
-  //loop over MCUs
-  for (int32 MCU_Idx = 0; MCU_Idx < m_NumMCUsInArea; MCU_Idx++)
+  for(int32 MCU_RowIdx = 0; MCU_RowIdx < m_NumMCUsInHeight; MCU_RowIdx++) //loop over MCUs rows
+  {
+    const int32 MCU_IdxBeg = MCU_RowIdx * m_NumMCUsInWidth;
+    const int32 MCU_IdxEnd = MCU_IdxBeg + m_NumMCUsInWidth;
+    m_ThPI.storeTask([this, &CoeffsTransV, &CmpPtrV, &CmpStrideV, MCU_IdxBeg, MCU_IdxEnd](int32 /*ThIdx*/) { xFwdTransformSlc(CoeffsTransV, CmpPtrV, CmpStrideV, MCU_IdxBeg, MCU_IdxEnd); });
+  }
+  m_ThPI.executeStoredTasks();
+}
+void xAdvancedEncoder::xFwdTransformSlc(int16* CoeffsTransV[], const uint16* CmpPtrV[], const int32 CmpStrideV[], int32 MCU_IdxBeg, int32 MCU_IdxEnd)
+{
+  //fmt::print("MCU_IdxBeg={}\n", MCU_IdxBeg);
+  for(int32 MCU_Idx = MCU_IdxBeg; MCU_Idx < MCU_IdxEnd; MCU_Idx++) //loop over MCUs
   {
     xFwdTransformMCU(CoeffsTransV, CmpPtrV, CmpStrideV, MCU_Idx);
   }
@@ -354,11 +354,9 @@ void xAdvancedEncoder::xFwdTransformMCU(int16* CoeffsTransV[], const uint16* Cmp
         const uint16* BlockPtr  = CmpPtr + BlockPosV * CmpStride + BlockPosH;     
         if     (BlockResV >= 8 && BlockResH >= 8) { loadEntireBlock(SamplesOrg, BlockPtr, CmpStride); } //C++20 TODO use [[likely]]
         else if(BlockResV >  0 && BlockResH >  0) { loadExtendBlock(SamplesOrg, BlockPtr, CmpStride, xMin(BlockResH, c_BS), xMin(BlockResV, c_BS)); }
-        else                                      {
-          zeroEntireBlock(SamplesOrg);
-        }
+        else                                      { zeroEntireBlock(SamplesOrg); }
 
-        const int32 CoeffTransOffset = BlockIdx << xJPEG_Constants::c_Log2BlockArea;
+        const int32 CoeffTransOffset = BlockIdx << c_L2BA;
         xTransform::FwdTransformDCT_8x8(CoeffsTransV[CmpIdx] + CoeffTransOffset, SamplesOrg);
         CoeffsTransV[CmpIdx][CoeffTransOffset] -= xTransformConstants::c_FwdDcCorr; //DC correction - JPEG requires 128 to be subtracted from every input sample - could be done be DC -= 
         BlockIdx++;
@@ -368,13 +366,22 @@ void xAdvancedEncoder::xFwdTransformMCU(int16* CoeffsTransV[], const uint16* Cmp
 }
 void xAdvancedEncoder::xInvTransformPic(xPicYUV* Picture, const int16* CoeffsTransV[])
 {
-        uint16* CmpPtrs   [] = {Picture->getAddr  (eCmp::LM), Picture->getAddr  (eCmp::CB), Picture->getAddr  (eCmp::CR), nullptr};
-  const int32   CmpStrides[] = {Picture->getStride(eCmp::LM), Picture->getStride(eCmp::CB), Picture->getStride(eCmp::CR),       0};
+        uint16* CmpPtrV   [] = {Picture->getAddr  (eCmp::LM), Picture->getAddr  (eCmp::CB), Picture->getAddr  (eCmp::CR), nullptr};
+  const int32   CmpStrideV[] = {Picture->getStride(eCmp::LM), Picture->getStride(eCmp::CB), Picture->getStride(eCmp::CR),       0};
 
-  //loop over MCUs
-  for(int32 MCU_Idx = 0; MCU_Idx < m_NumMCUsInArea; MCU_Idx++)
+  for(int32 MCU_RowIdx = 0; MCU_RowIdx < m_NumMCUsInHeight; MCU_RowIdx++) //loop over MCUs rows
   {
-    xInvTransformMCU(CmpPtrs, CmpStrides, CoeffsTransV, MCU_Idx);
+    const int32 MCU_IdxBeg = MCU_RowIdx * m_NumMCUsInWidth;
+    const int32 MCU_IdxEnd = MCU_IdxBeg + m_NumMCUsInWidth;
+    m_ThPI.storeTask([this, &CmpPtrV, &CmpStrideV, &CoeffsTransV, MCU_IdxBeg, MCU_IdxEnd](int32 /*ThIdx*/) { xInvTransformSlc(CmpPtrV, CmpStrideV, CoeffsTransV, MCU_IdxBeg, MCU_IdxEnd); });
+  }
+  m_ThPI.executeStoredTasks();
+}
+void xAdvancedEncoder::xInvTransformSlc(uint16* CmpPtrV[], const int32 CmpStrideV[], const int16* CoeffsTransV[], int32 MCU_IdxBeg, int32 MCU_IdxEnd)
+{
+  for(int32 MCU_Idx = MCU_IdxBeg; MCU_Idx < MCU_IdxEnd; MCU_Idx++) //loop over MCUs
+  {
+    xInvTransformMCU(CmpPtrV, CmpStrideV, CoeffsTransV, MCU_Idx);
   }
 }
 void xAdvancedEncoder::xInvTransformMCU(uint16* CmpPtrV[], const int32 CmpStrideV[], const int16* CoeffsTransV[], int32 MCU_Idx)
@@ -406,7 +413,7 @@ void xAdvancedEncoder::xInvTransformMCU(uint16* CmpPtrV[], const int32 CmpStride
         const int32 BlockPosH = MCU_PelPosH + H * c_BS;
         const int32 BlockResH = m_CmpWidth[CmpIdx] - BlockPosH;
         uint16* restrict BlockPtr = CmpPtr + BlockPosV * CmpStride + BlockPosH;
-        const int32 CoeffTransOffset = BlockIdx << xJPEG_Constants::c_Log2BlockArea;
+        const int32 CoeffTransOffset = BlockIdx << c_L2BA;
 
         memcpy(CoeffsTrans, CoeffsTransV[CmpIdx] + CoeffTransOffset, c_BA * sizeof(int16));
         CoeffsTrans[0] += xTransformConstants::c_InvDcCorr; //DC correction - JPEG requires 128 to be subtracted from every input sample - could be done be DC -= 
@@ -421,70 +428,104 @@ void xAdvancedEncoder::xInvTransformMCU(uint16* CmpPtrV[], const int32 CmpStride
     }
   }
 }
-
 void xAdvancedEncoder::xFwdQuantScanPic(int16* CoeffsScanV[], const int16* CoeffsTransV[], const xQuantizerSet& Quant)
 {
   for(int32 CmpIdx = 0; CmpIdx < m_NumOfComponents; CmpIdx++)
   {
-    int32 QuantTabIdx = m_SOF0.getQuantTableId(eCmp(CmpIdx));
-    xFwdQuantScanCmp(CoeffsScanV[CmpIdx], CoeffsTransV[CmpIdx], m_NumBlocks[CmpIdx], Quant.getQuantizer(QuantTabIdx));
-  }  
-}
-void xAdvancedEncoder::xFwdQuantScanCmp(int16* CoeffsScan, const int16* CoeffsTrans, int32 NumBlocks, const xQuantizer& Quant)
-{
-  int16 CoeffsQuant[c_BA];
+    const int32       QuantTabIdx       = m_SOF0.getQuantTableId(eCmp(CmpIdx));
+    const int32       NumBlocksInWidth  = m_NumBlocksInWidth [CmpIdx];
+    const int32       NumBlocksInHeight = m_NumBlocksInHeight[CmpIdx];
+    const xQuantizer* Quantizer         = &Quant.getQuantizer(QuantTabIdx);
 
-  for(int32 BlockIdx = 0; BlockIdx < NumBlocks; BlockIdx++)
+    int16*       CoeffsScan  = CoeffsScanV [CmpIdx];
+    const int16* CoeffsTrans = CoeffsTransV[CmpIdx];
+
+    for(int32 BlockRowIdx = 0; BlockRowIdx < NumBlocksInHeight; BlockRowIdx++) //loop over block rows
+    {
+      const int32 BlockIdxBeg = BlockRowIdx * NumBlocksInWidth;
+      const int32 BlockIdxEnd = BlockIdxBeg + NumBlocksInWidth;
+
+      m_ThPI.storeTask([CoeffsScan, CoeffsTrans, Quantizer, BlockIdxBeg, BlockIdxEnd](int32 /*ThIdx*/) { xFwdQuantScanRng(CoeffsScan, CoeffsTrans, *Quantizer, BlockIdxBeg, BlockIdxEnd); });      
+    }
+  }
+  m_ThPI.executeStoredTasks();
+}
+void xAdvancedEncoder::xFwdQuantScanRng(int16* CoeffScan, const int16* CoeffTrans, const xQuantizer& Quant, int32 BlockIdxBeg, int32 BlockIdxEnd)
+{
+  int16 CoeffQuant[c_BA];
+
+  for(int32 BlockIdx = BlockIdxBeg; BlockIdx < BlockIdxEnd; BlockIdx++)
   {
-    const int32 BlockOffset = BlockIdx << xJPEG_Constants::c_Log2BlockArea;
-    Quant.QuantScale(CoeffsQuant, CoeffsTrans + BlockOffset);
-    xScan::Scan(CoeffsScan + BlockOffset, CoeffsQuant);
+    const int32 BlockOffset = BlockIdx << c_L2BA;
+    Quant.QuantScale(CoeffQuant, CoeffTrans + BlockOffset);
+    xScan::Scan(CoeffScan + BlockOffset, CoeffQuant);
   }
 }
 void xAdvancedEncoder::xInvScanQuantPic(int16* CoeffsTransV[], const int16* CoeffsScanV[], const xQuantizerSet& Quant)
 {
   for(int32 CmpIdx = 0; CmpIdx < m_NumOfComponents; CmpIdx++)
   {
-    int32 QuantTabIdx = m_SOF0.getQuantTableId(eCmp(CmpIdx));
-    xInvScanQuantCmp(CoeffsTransV[CmpIdx], CoeffsScanV[CmpIdx], m_NumBlocks[CmpIdx], Quant.getQuantizer(QuantTabIdx));
+    const int32       QuantTabIdx       = m_SOF0.getQuantTableId(eCmp(CmpIdx));
+    const int32       NumBlocksInWidth  = m_NumBlocksInWidth [CmpIdx];
+    const int32       NumBlocksInHeight = m_NumBlocksInHeight[CmpIdx];
+    const xQuantizer* Quantizer         = &Quant.getQuantizer(QuantTabIdx);
+
+    int16*       CoeffsTrans = CoeffsTransV[CmpIdx];
+    const int16* CoeffsScan  = CoeffsScanV [CmpIdx];
+
+    for(int32 BlockRowIdx = 0; BlockRowIdx < NumBlocksInHeight; BlockRowIdx++) //loop over block rows
+    {
+      const int32 BlockIdxBeg = BlockRowIdx * NumBlocksInWidth;
+      const int32 BlockIdxEnd = BlockIdxBeg + NumBlocksInWidth;
+
+      m_ThPI.storeTask([CoeffsTrans, CoeffsScan, Quantizer, BlockIdxBeg, BlockIdxEnd](int32 /*ThIdx*/) {xInvScanQuantRng(CoeffsTrans, CoeffsScan, *Quantizer, BlockIdxBeg, BlockIdxEnd); });
+    }
   }
+  m_ThPI.executeStoredTasks();
 }
-void xAdvancedEncoder::xInvScanQuantCmp(int16* CoeffsTrans, const int16* CoeffsScan, int32 NumBlocks, const xQuantizer& Quant)
+void xAdvancedEncoder::xInvScanQuantRng(int16* CoeffTrans, const int16* CoeffScan, const xQuantizer& Quant, int32 BlockIdxBeg, int32 BlockIdxEnd)
 {
-  int16 CoeffsQuant[c_BA];
+  int16 CoeffQuant[c_BA];
 
-  for(int32 BlockIdx = 0; BlockIdx < NumBlocks; BlockIdx++)
+  for(int32 BlockIdx = BlockIdxBeg; BlockIdx < BlockIdxEnd; BlockIdx++)
   {
-    const int32 BlockOffset = BlockIdx << xJPEG_Constants::c_Log2BlockArea;
-    xScan::InvScan(CoeffsQuant, CoeffsScan + BlockOffset);
-    Quant.InvScale(CoeffsTrans + BlockOffset, CoeffsQuant);
+    const int32 BlockOffset = BlockIdx << c_L2BA;
+    xScan::InvScan(CoeffQuant, CoeffScan + BlockOffset);
+    Quant.InvScale(CoeffTrans + BlockOffset, CoeffQuant);
   }
 }
-
 int64V4 xAdvancedEncoder::xHuffEstPic(const int16* CoeffsScanV[])
 {
-  int64V4 EstNumBits = xMakeVec4<int64>(0);
-  if(m_RestartInterval == 0) //no division - encode entire picture at once
+  std::vector<int64V4> EstNumBits;
+  if(m_RestartInterval == 0) //no division - however, process picture in MCU rows
   {
-    EstNumBits += xHuffEstSlc(CoeffsScanV, 0, m_NumMCUsInArea - 1);
+    EstNumBits.resize(m_NumMCUsInHeight);
+    for(int32 MCU_RowIdx = 0; MCU_RowIdx < m_NumMCUsInHeight; MCU_RowIdx++) //loop over MCUs rows
+    {
+      const int32 MCU_IdxFirst = MCU_RowIdx   * m_NumMCUsInWidth    ;
+      const int32 MCU_IdxLast  = MCU_IdxFirst + m_NumMCUsInWidth - 1;
+      m_ThPI.storeTask([this, &EstNumBits, MCU_RowIdx, &CoeffsScanV, MCU_IdxFirst, MCU_IdxLast](int32 /*ThIdx*/) { EstNumBits[MCU_RowIdx] = xHuffEstSlc(CoeffsScanV, MCU_IdxFirst, MCU_IdxLast); });
+    }
   }
   else //divide picture into independent slices
   {
-    for(int32 SliceIdx = 0, MCU_IdxFirst = 0; MCU_IdxFirst < m_NumMCUsInArea; SliceIdx++, MCU_IdxFirst += m_RestartInterval)
+    EstNumBits.resize(m_NumOfSlices);
+    for(int32 SliceIdx = 0; SliceIdx < m_NumOfSlices; SliceIdx++) //loop over slices
     {
-      int32 MCU_IdxLast = xMin(m_NumMCUsInArea, MCU_IdxFirst + m_RestartInterval) - 1;
-      EstNumBits += xHuffEstSlc(CoeffsScanV, MCU_IdxFirst, MCU_IdxLast);
-      //if(MCU_IdxLast != m_NumMCUsInArea - 1) { xJFIF::WriteRST(OutputBuffer, (uint8)((uint32)SliceIdx & (uint32)0x07)); }
+      const int32 MCU_IdxFirst = SliceIdx * m_RestartInterval;
+      const int32 MCU_IdxLast  = xMin(m_NumMCUsInArea, MCU_IdxFirst + m_NumMCUsInSlice) - 1;
+      m_ThPI.storeTask([this, &EstNumBits, SliceIdx, &CoeffsScanV, MCU_IdxFirst, MCU_IdxLast](int32 /*ThIdx*/) { EstNumBits[SliceIdx] = xHuffEstSlc(CoeffsScanV, MCU_IdxFirst, MCU_IdxLast); });
     }
   }
-  return EstNumBits;
+  m_ThPI.executeStoredTasks();
+
+  int64V4 TotalEstNumBits = std::accumulate(EstNumBits.cbegin(), EstNumBits.cend(), xMakeVec4<int64>(0));
+  return TotalEstNumBits;
 }
 int64V4 xAdvancedEncoder::xHuffEstSlc(const int16* CoeffsScanV[], int32 MCU_IdxFirst, int32 MCU_IdxLast)
 {
-  int64V4 EstNumBits = xMakeVec4<int64>(0);
-  m_EntropyEst.StartSlice();
-  //loop over MCUs
-  for(int32 MCU_Idx = MCU_IdxFirst; MCU_Idx <= MCU_IdxLast; MCU_Idx++)
+  int64V4 EstNumBits = xMakeVec4<int64>(0);  
+  for(int32 MCU_Idx = MCU_IdxFirst; MCU_Idx <= MCU_IdxLast; MCU_Idx++) //loop over MCUs
   {
     EstNumBits += xHuffEstMCU(CoeffsScanV, MCU_Idx);
   }
@@ -500,61 +541,131 @@ int64V4 xAdvancedEncoder::xHuffEstMCU(const int16* CoeffsScanV[], int32 MCU_Idx)
     int32 HuffTabIdDC = m_SOS.getHuffTableIdDC(eCmp(CmpIdx));
     int32 HuffTabIdAC = m_SOS.getHuffTableIdAC(eCmp(CmpIdx));
     int32 BlockIdx    = MCU_Idx * m_SampFactorVer[CmpIdx] * m_SampFactorHor[CmpIdx];
+    
     for(int32 V = 0; V < m_SampFactorVer[CmpIdx]; V++)
     {
       for(int32 H = 0; H < m_SampFactorHor[CmpIdx]; H++)
-      {
-        const int32 CoeffScanOffset = BlockIdx << xJPEG_Constants::c_Log2BlockArea;        
-        EstNumBits[CmpIdx] += m_EntropyEst.EstimateBlock(CoeffsScanV[CmpIdx] + CoeffScanOffset, eCmp(CmpIdx), HuffTabIdDC, HuffTabIdAC);
+      {        
+        const int32 CoeffOffset = BlockIdx << c_L2BA;
+        const bool  FirstInSlc  = BlockIdx == 0 || (m_RestartInterval > 0 && MCU_Idx % m_RestartInterval == 0);
+        const int32 LastDC      = FirstInSlc ? 0 : CoeffsScanV[CmpIdx][CoeffOffset - c_BA];
+
+        EstNumBits[CmpIdx] += m_EntropyEst.EstimateBlock(CoeffsScanV[CmpIdx] + CoeffOffset, LastDC, HuffTabIdDC, HuffTabIdAC);
         BlockIdx++;
       }
     }
   }
   return EstNumBits;
 }
-uint64 xAdvancedEncoder::xCalcDistBLK(const int16* ScanCoeffs, const uint16* SamplesOrg, int32 QuantTabId)
-{
-  int16  TmpQuantCoeffs[c_BA];
-  int16  TmpTransCoeffs[c_BA];
-  uint16 TmpSamples    [c_BA];
 
-  xScan::InvScan(TmpQuantCoeffs, ScanCoeffs);
-  m_QuantMain.InvScale(TmpTransCoeffs, TmpQuantCoeffs, QuantTabId);
-  TmpTransCoeffs[0] += xTransformConstants::c_InvDcCorr; //DC correction - JPEG requires 128 to be subtracted from every input sample - could be done be DC -= 
-  xTransform::InvTransformDCT_8x8(TmpSamples, TmpTransCoeffs);
-  uint64 SSD = xDistortion::CalcSSD(SamplesOrg, TmpSamples, c_BS, c_BS, c_BS, c_BS);
-  return SSD;
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+void xAdvancedEncoder::xEstimateLambda(const xPicYUV* Picture)
+{
+  const int16* ConstCmpCoeffsTransOrg[] = { m_CmpCoeffsTransOrg[0], m_CmpCoeffsTransOrg[1], m_CmpCoeffsTransOrg[2], m_CmpCoeffsTransOrg[3] };
+  const int16* ConstCmpCoeffsTransRec[] = { m_CmpCoeffsTransRec[0], m_CmpCoeffsTransRec[1], m_CmpCoeffsTransRec[2], m_CmpCoeffsTransRec[3] };
+  const int16* ConstCmpCoeffsScan    [] = { m_CmpCoeffsScan    [0], m_CmpCoeffsScan    [1], m_CmpCoeffsScan    [2], m_CmpCoeffsScan    [3] };
+  const int16* ConstCmpCoeffsScanAux [] = { m_CmpCoeffsScanAux [0], m_CmpCoeffsScanAux [1], m_CmpCoeffsScanAux [2], m_CmpCoeffsScanAux [3] };
+
+  //base point
+  xInvScanQuantPic(m_CmpCoeffsTransRec, ConstCmpCoeffsScan, m_QuantMain);
+  xInvTransformPic(&m_PicRec          , ConstCmpCoeffsTransRec);
+  int64V4 EstNumBitsMain = xHuffEstPic (ConstCmpCoeffsScan);
+  int64V4 DistortionMain = xCalcPicSSDs(Picture, &m_PicRec);
+
+  //lower point
+  int64V4 EstNumBitsAuxD = { 0,0,0,0 };
+  int64V4 DistortionAuxD = { 0,0,0,0 };
+  if(m_Quality > 1)
+  {
+    xFwdQuantScanPic(m_CmpCoeffsScanAux , ConstCmpCoeffsTransOrg, m_QuantAuxD);
+    xInvScanQuantPic(m_CmpCoeffsTransRec, ConstCmpCoeffsScanAux , m_QuantAuxD);
+    xInvTransformPic(&m_PicRec          , ConstCmpCoeffsTransRec);
+    EstNumBitsAuxD = xHuffEstPic (ConstCmpCoeffsScanAux);
+    DistortionAuxD = xCalcPicSSDs(Picture, &m_PicRec);
+  }
+  
+  //higher point
+  int64V4 EstNumBitsAuxI = { 0,0,0,0 };
+  int64V4 DistortionAuxI = { 0,0,0,0 };
+  if(m_Quality < 100)
+  {
+    xFwdQuantScanPic(m_CmpCoeffsScanAux , ConstCmpCoeffsTransOrg, m_QuantAuxI);
+    xInvScanQuantPic(m_CmpCoeffsTransRec, ConstCmpCoeffsScanAux , m_QuantAuxI);
+    xInvTransformPic(&m_PicRec, ConstCmpCoeffsTransRec);
+    EstNumBitsAuxI = xHuffEstPic(ConstCmpCoeffsScanAux);
+    DistortionAuxI = xCalcPicSSDs(Picture, &m_PicRec);
+  }
+
+  //local lambda
+  int64V4 DeltaEstNumBitsD = EstNumBitsMain - EstNumBitsAuxD;
+  int64V4 DeltaDistortionD = DistortionMain - DistortionAuxD;
+  int64V4 DeltaEstNumBitsI = EstNumBitsMain - EstNumBitsAuxI;
+  int64V4 DeltaDistortionI = DistortionMain - DistortionAuxI;
+
+  flt64V4 LambdaD = -(flt64V4)DeltaDistortionD / (flt64V4)DeltaEstNumBitsD;
+  flt64V4 LambdaI = -(flt64V4)DeltaDistortionI / (flt64V4)DeltaEstNumBitsI;
+  if     (m_Quality > 1 && m_Quality < 100) { m_Lambda = (LambdaD + LambdaI) / 2.0; }
+  else if(m_Quality > 1                   ) { m_Lambda = LambdaD; }
+  else if(m_Quality < 100                 ) { m_Lambda = LambdaI; }
+
+  if(m_VerboseLevel >= 5)
+  {
+    std::string Dump = "LambdaEstimation\n";
+    Dump += fmt::format("QuantMain EstNumBits={:d} {:d} {:d}    Distortion={:d} {:d} {:d}\n", EstNumBitsMain[0], EstNumBitsMain[1], EstNumBitsMain[2], DistortionMain[0], DistortionMain[1], DistortionMain[2]);
+    Dump += fmt::format("QuantAuxD EstNumBits={:d} {:d} {:d}    Distortion={:d} {:d} {:d}\n", EstNumBitsAuxD[0], EstNumBitsAuxD[1], EstNumBitsAuxD[2], DistortionAuxD[0], DistortionAuxD[1], DistortionAuxD[2]);
+    Dump += fmt::format("QuantAuxI EstNumBits={:d} {:d} {:d}    Distortion={:d} {:d} {:d}\n", EstNumBitsAuxI[0], EstNumBitsAuxI[1], EstNumBitsAuxI[2], DistortionAuxI[0], DistortionAuxI[1], DistortionAuxI[2]);
+    Dump += fmt::format("LambdaD = {} {} {}\n", LambdaD[0], LambdaD[1], LambdaD[2]);
+    Dump += fmt::format("LambdaI = {} {} {}\n", LambdaI[0], LambdaI[1], LambdaI[2]);
+    Dump += fmt::format("Lambda  = {} {} {}\n", m_Lambda[0], m_Lambda[1], m_Lambda[2]);
+    fmt::print("{}", Dump);
+  }
 }
 
-void xAdvancedEncoder::xOptimizePic(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const xPicYUV* Picture)
+void xAdvancedEncoder::xOptQuantPic(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const xPicYUV* Picture)
 {
   if(m_RestartInterval == 0) //no division - encode entire picture at once
   {
-    xOptimizeSlc(OptCoeffsScanV, CoeffsScanV, Picture, 0, m_NumMCUsInArea - 1);
+    for(int32 MCU_RowIdx = 0; MCU_RowIdx < m_NumMCUsInHeight; MCU_RowIdx++) //loop over MCUs rows
+    {
+      const int32 MCU_IdxFirst = MCU_RowIdx   * m_NumMCUsInWidth    ;
+      const int32 MCU_IdxLast  = MCU_IdxFirst + m_NumMCUsInWidth - 1;
+      m_ThPI.storeTask([this, &OptCoeffsScanV, &CoeffsScanV, &Picture, MCU_IdxFirst, MCU_IdxLast](int32 /*ThIdx*/) { xOptQuantSlc(OptCoeffsScanV, CoeffsScanV, Picture, MCU_IdxFirst, MCU_IdxLast); });
+    }
   }
   else //divide picture into independent slices
   {
-    for(int32 SliceIdx = 0, MCU_IdxFirst = 0; MCU_IdxFirst < m_NumMCUsInArea; SliceIdx++, MCU_IdxFirst += m_RestartInterval)
+    for(int32 SliceIdx = 0; SliceIdx < m_NumOfSlices; SliceIdx++)
     {
-      int32 MCU_IdxLast = xMin(m_NumMCUsInArea, MCU_IdxFirst + m_RestartInterval) - 1;
-      xOptimizeSlc(OptCoeffsScanV, CoeffsScanV, Picture, MCU_IdxFirst, MCU_IdxLast);
+      const int32 MCU_IdxFirst = SliceIdx * m_RestartInterval;
+      const int32 MCU_IdxLast  = xMin(m_NumMCUsInArea, MCU_IdxFirst + m_RestartInterval) - 1;
+      m_ThPI.storeTask([this, &OptCoeffsScanV, &CoeffsScanV, &Picture, MCU_IdxFirst, MCU_IdxLast](int32 /*ThIdx*/) {xOptQuantSlc(OptCoeffsScanV, CoeffsScanV, Picture, MCU_IdxFirst, MCU_IdxLast); });
     }
   }
-}
-void xAdvancedEncoder::xOptimizeSlc(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const xPicYUV* Picture, int32 MCU_IdxFirst, int32 MCU_IdxLast)
-{
-  m_EntropyEst.StartSlice();
+  m_ThPI.executeStoredTasks();
 
+  if(!m_OptQuantLuma)
+  {
+    memcpy(m_CmpCoeffsScanOpt[(int32)eCmp::LM], m_CmpCoeffsScan[(int32)eCmp::LM], m_MCUsMulArea[(int32)eCmp::LM] * sizeof(int16));
+  }
+  if(!m_OptQuantChroma)
+  {
+    memcpy(m_CmpCoeffsScanOpt[(int32)eCmp::CB], m_CmpCoeffsScan[(int32)eCmp::CB], m_MCUsMulArea[(int32)eCmp::CB] * sizeof(int16));
+    memcpy(m_CmpCoeffsScanOpt[(int32)eCmp::CR], m_CmpCoeffsScan[(int32)eCmp::CR], m_MCUsMulArea[(int32)eCmp::CR] * sizeof(int16));
+  }
+}
+void xAdvancedEncoder::xOptQuantSlc(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const xPicYUV* Picture, int32 MCU_IdxFirst, int32 MCU_IdxLast)
+{
   const uint16* CmpPtrV   [] = {Picture->getAddr  (eCmp::LM), Picture->getAddr  (eCmp::CB), Picture->getAddr  (eCmp::CR), nullptr};
   const int32   CmpStrideV[] = {Picture->getStride(eCmp::LM), Picture->getStride(eCmp::CB), Picture->getStride(eCmp::CR),       0};
 
   //loop over MCUs
   for(int32 MCU_Idx = MCU_IdxFirst; MCU_Idx <= MCU_IdxLast; MCU_Idx++)
   {
-    xOptimizeMCU(OptCoeffsScanV, CoeffsScanV, CmpPtrV, CmpStrideV, MCU_Idx);
+    xOptQuantMCU(OptCoeffsScanV, CoeffsScanV, CmpPtrV, CmpStrideV, MCU_Idx);
   }
 }
-void xAdvancedEncoder::xOptimizeMCU(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const uint16* CmpPtrV[], const int32 CmpStrideV[], int32 MCU_Idx)
+void xAdvancedEncoder::xOptQuantMCU(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const uint16* CmpPtrV[], const int32 CmpStrideV[], int32 MCU_Idx)
 {
   //calculate MCU position
   int32 MCU_PosV = MCU_Idx / m_NumMCUsInWidth;
@@ -566,12 +677,12 @@ void xAdvancedEncoder::xOptimizeMCU(int16* OptCoeffsScanV[], const int16* Coeffs
   //transform blocks
   for(int32 CmpIdx = 0; CmpIdx < m_NumOfComponents; CmpIdx++)
   {
-    if(m_UseRDOQ && ((CmpIdx == (int32)eCmp::LM && m_OptimizeLuma) || (CmpIdx != (int32)eCmp::LM && m_OptimizeChroma)))
+    if(m_UseRDOQ && ((CmpIdx == (int32)eCmp::LM && m_OptQuantLuma) || (CmpIdx != (int32)eCmp::LM && m_OptQuantChroma)))
     {
       const int32 MCU_PelPosV = MCU_PosV << (2 + m_SampFactorVer[CmpIdx]);
       const int32 MCU_PelPosH = MCU_PosH << (2 + m_SampFactorHor[CmpIdx]);
 
-      const uint16* CmpPtr    = CmpPtrV[CmpIdx];
+      const uint16* CmpPtr    = CmpPtrV   [CmpIdx];
       const int32   CmpStride = CmpStrideV[CmpIdx];
 
       int32 BlockIdx = MCU_Idx * m_SampFactorVer[CmpIdx] * m_SampFactorHor[CmpIdx];
@@ -591,33 +702,37 @@ void xAdvancedEncoder::xOptimizeMCU(int16* OptCoeffsScanV[], const int16* Coeffs
           else if(BlockResV >  0 && BlockResH >  0) { loadExtendBlock(SamplesOrg, BlockPtr, CmpStride, xMin(BlockResH, c_BS), xMin(BlockResV, c_BS)); }
           else                                      { zeroEntireBlock(SamplesOrg); }
 
-          const int32 CoeffTransOffset = BlockIdx << xJPEG_Constants::c_Log2BlockArea;
-          xOptimizeBLK(OptCoeffsScanV[CmpIdx] + CoeffTransOffset, CoeffsScanV[CmpIdx] + CoeffTransOffset, SamplesOrg, eCmp(CmpIdx));
+          const int32 CoeffOffset = BlockIdx << c_L2BA;
+          const bool  FirstInSlc  = BlockIdx == 0 || (m_RestartInterval > 0 && MCU_Idx % m_RestartInterval == 0);
+          const int32 LastDC      = FirstInSlc ? 0 : CoeffsScanV[CmpIdx][CoeffOffset - c_BA];
+          xOptQuantBLK(OptCoeffsScanV[CmpIdx] + CoeffOffset, CoeffsScanV[CmpIdx] + CoeffOffset, SamplesOrg, eCmp(CmpIdx), LastDC);
           BlockIdx++;
         }
       }
     }
   }
 }
-void xAdvancedEncoder::xOptimizeBLK(int16* OptCoeffScan, const int16* CoeffsScan, const uint16* SamplesOrg, eCmp CmpId)
+void xAdvancedEncoder::xOptQuantBLK(int16* OptCoeffScan, const int16* CoeffsScan, const uint16* SamplesOrg, eCmp CmpId, int32 LastDC)
 {
   const int32 QuantTabId  = m_SOF0.getQuantTableId(CmpId);
   const int32 HuffTabIdDC = m_SOS.getHuffTableIdDC(CmpId);
   const int32 HuffTabIdAC = m_SOS.getHuffTableIdAC(CmpId);  
   const flt64 Lambda      = m_Lambda[(int32)CmpId];
-  const int32 LastDC      = m_EntropyEst.getLastDC(CmpId);
 
   int32 LastNonZero = xEntropyCommon::findLastNonZero(CoeffsScan);
   if(LastNonZero == 0) { memcpy(OptCoeffScan, CoeffsScan, c_BA * sizeof(int16)); return; } //only DC - nothing to do here
 
-  int32  BestBits = m_EntropyEst.EstimateBlockStateless(CoeffsScan, LastDC, HuffTabIdDC, HuffTabIdAC);
+  const int32 OrgBitsDC = m_EntropyEst.EstimateBlockDC(CoeffsScan, LastDC, HuffTabIdDC);
+  const int32 OrgBitsAC = m_EntropyEst.EstimateBlockAC(CoeffsScan,         HuffTabIdAC);
+
+  int32  BestBits = OrgBitsDC + OrgBitsAC;
   uint64 BestDist = xCalcDistBLK(CoeffsScan, SamplesOrg, QuantTabId);
-  double BestCost = (double)BestDist + Lambda * (double)BestBits;
+  flt64  BestCost = (flt64)BestDist + Lambda * (flt64)BestBits;
 
   int16 TmpCoeffsScan[c_BA];
   memcpy(TmpCoeffsScan, CoeffsScan, c_BA * sizeof(int16));
 
-  for (int32 PassIdx = 0; PassIdx < m_NumBlockOptPasses; PassIdx++)
+  for (int32 PassIdx = 0; PassIdx < m_NumOptPassesBlock; PassIdx++)
   {    
     for (int32 i = LastNonZero; i >= 1; i--)
     {
@@ -629,9 +744,9 @@ void xAdvancedEncoder::xOptimizeBLK(int16* OptCoeffScan, const int16* CoeffsScan
       if(OrgCoeff != 0)
       {
         TmpCoeffsScan[i] = 0;
-        int32  CurrBits = m_EntropyEst.EstimateBlockStateless(TmpCoeffsScan, LastDC, HuffTabIdDC, HuffTabIdAC);
+        int32  CurrBits = OrgBitsDC + m_EntropyEst.EstimateBlockAC(TmpCoeffsScan, HuffTabIdAC);
         uint64 CurrDist = xCalcDistBLK(TmpCoeffsScan, SamplesOrg, QuantTabId);
-        double CurrCost = (double)CurrDist + Lambda * (double)CurrBits;
+        flt64  CurrCost = (double)CurrDist + Lambda * (flt64)CurrBits;
         if (CurrCost < BestCost)
         {
           BestBits  = CurrBits;
@@ -644,9 +759,9 @@ void xAdvancedEncoder::xOptimizeBLK(int16* OptCoeffScan, const int16* CoeffsScan
       if(OrgCoeff != -1)
       {
         TmpCoeffsScan[i] = OrgCoeff + 1;
-        int32  CurrBits = m_EntropyEst.EstimateBlockStateless(TmpCoeffsScan, LastDC, HuffTabIdDC, HuffTabIdAC);
+        int32  CurrBits = OrgBitsDC + m_EntropyEst.EstimateBlockAC(TmpCoeffsScan, HuffTabIdAC);
         uint64 CurrDist = xCalcDistBLK(TmpCoeffsScan, SamplesOrg, QuantTabId);
-        double CurrCost = (double)CurrDist + Lambda * (double)CurrBits;
+        flt64  CurrCost = (flt64)CurrDist + Lambda * (flt64)CurrBits;
         if (CurrCost < BestCost)
         {
           BestBits = CurrBits;
@@ -659,9 +774,9 @@ void xAdvancedEncoder::xOptimizeBLK(int16* OptCoeffScan, const int16* CoeffsScan
       if(OrgCoeff != 1)
       {
         TmpCoeffsScan[i] = OrgCoeff - 1;
-        int32  CurrBits = m_EntropyEst.EstimateBlockStateless(TmpCoeffsScan, LastDC, HuffTabIdDC, HuffTabIdAC);
+        int32  CurrBits = OrgBitsDC + m_EntropyEst.EstimateBlockAC(TmpCoeffsScan, HuffTabIdAC);
         uint64 CurrDist = xCalcDistBLK(TmpCoeffsScan, SamplesOrg, QuantTabId);
-        double CurrCost = (double)CurrDist + Lambda * (double)CurrBits;
+        flt64  CurrCost = (flt64)CurrDist + Lambda * (flt64)CurrBits;
         if (CurrCost < BestCost)
         {
           BestBits = CurrBits;
@@ -677,54 +792,207 @@ void xAdvancedEncoder::xOptimizeBLK(int16* OptCoeffScan, const int16* CoeffsScan
   //int32 TestBits = m_EntropyEst.EstimateBlock(TmpCoeffsScan, CmpId, HuffTabIdDC, HuffTabIdAC);
   memcpy(OptCoeffScan, TmpCoeffsScan, c_BA * sizeof(int16));
 }
-
-void xAdvancedEncoder::xHuffEncPic(xByteBuffer* OutputBuffer, const int16* CoeffsScanV[])
+uint64 xAdvancedEncoder::xCalcDistBLK(const int16* ScanCoeffs, const uint16* SamplesOrg, int32 QuantTabId)
 {
-  if(m_RestartInterval == 0) //no division - encode entire picture at once
+  int16  TmpQuantCoeffs[c_BA];
+  int16  TmpTransCoeffs[c_BA];
+  uint16 TmpSamples    [c_BA];
+
+  xScan::InvScan(TmpQuantCoeffs, ScanCoeffs);
+  m_QuantMain.InvScale(TmpTransCoeffs, TmpQuantCoeffs, QuantTabId);
+  TmpTransCoeffs[0] += xTransformConstants::c_InvDcCorr; //DC correction - JPEG requires 128 to be subtracted from every input sample - could be done be DC -= 
+  xTransform::InvTransformDCT_8x8(TmpSamples, TmpTransCoeffs);
+  uint64 SSD = xDistortion::CalcSSD(SamplesOrg, TmpSamples, c_BS, c_BS, c_BS, c_BS);
+  return SSD;
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+void xAdvancedEncoder::xOptHuffPic(const int16* CoeffsScanV[])
+{
+  //calc symbol symbols
+  xCntPic(CoeffsScanV);
+
+  //build huffman tables
+  std::vector<xJFIF::xHuffTable> NewHT = m_HTs;
+
+  for(xJFIF::xHuffTable& HuffTable : NewHT)
   {
-    xHuffEncSlc(OutputBuffer, CoeffsScanV, 0, m_NumMCUsInArea - 1);
+    xJFIF::xHuffTable::eHuffClass HuffTableClass = HuffTable.getClass();
+    int32                         HuffTableId    = HuffTable.getIdx  ();
+    switch(HuffTableClass)
+    {
+    case xJFIF::xHuffTable::eHuffClass::DC:
+    {
+      const uint32* SymbolCount = m_EntropyCnts[0].getSymbolCountDC(HuffTableId);
+      uint8 LengthTable[xJPEG_Constants::c_MaxNumCodeSymbolsDC+1];
+      xHuffmanTabBuilder::buildLengthTable(LengthTable, SymbolCount, xJPEG_Constants::c_MaxNumCodeSymbolsDC);
+      HuffTable.InitCustom((uint8)HuffTableId, HuffTableClass, LengthTable);
+      break;
+    }
+    case xJFIF::xHuffTable::eHuffClass::AC:
+    {
+      const uint32* SymbolCount = m_EntropyCnts[0].getSymbolCountAC(HuffTableId);
+      uint8 LengthTable[xJPEG_Constants::c_MaxNumCodeSymbolsAC+1];
+      xHuffmanTabBuilder::buildLengthTable(LengthTable, SymbolCount, xJPEG_Constants::c_MaxNumCodeSymbolsAC);
+      HuffTable.InitCustom((uint8)HuffTableId, HuffTableClass, LengthTable);
+      break;
+    }
+    default: break;
+    }
+  }
+
+  //print tables
+  if(m_VerboseLevel >= 8)
+  {
+    std::string Dump = fmt::format("HuffmanTablesPrev\n");
+    for(int32 i = 0; i < (int32)m_HTs.size(); i++) { Dump += fmt::format("  Table_{}\n", i) + m_HTs[i].Format("    "); }
+    Dump += fmt::format("HuffmanTablesNext\n");
+    for(int32 i = 0; i < (int32)NewHT.size(); i++) { Dump += fmt::format("  Table_{}\n", i) + NewHT[i].Format("    "); }
+    fmt::print("{}\n", Dump);
+  }
+
+  if(m_VerboseLevel >= 6)
+  {
+    std::string Dump = fmt::format("HuffmanTablesPrev\n");
+    for(xJFIF::xHuffTable& HuffTable : m_HTs)
+    {
+      const uint32* SymbolCount = m_EntropyCnts[0].getSymbolCount(HuffTable.getClass(), HuffTable.getIdx());
+      flt64 AvgCodeLength = xHuffmanTabBuilder::calcAvgCodeLength(HuffTable, SymbolCount);
+      Dump += fmt::format("  Table Idx={} Class={} AvgCodeLength={:7.5f}\n", HuffTable.getIdx(), xJFIF::xHuffTable::xHuffClass2Str(HuffTable.getClass()), AvgCodeLength);
+    }
+    Dump += fmt::format("HuffmanTablesNext\n");
+    for(xJFIF::xHuffTable& HuffTable : NewHT)
+    {
+      const uint32* SymbolCount = m_EntropyCnts[0].getSymbolCount(HuffTable.getClass(), HuffTable.getIdx());
+      flt64 AvgCodeLength = xHuffmanTabBuilder::calcAvgCodeLength(HuffTable, SymbolCount);
+      Dump += fmt::format("  Table Idx={} Class={} AvgCodeLength={:7.5f}\n", HuffTable.getIdx(), xJFIF::xHuffTable::xHuffClass2Str(HuffTable.getClass()), AvgCodeLength);
+    }
+    fmt::print("{}\n", Dump);
+  }
+
+  m_HTs = NewHT;
+  
+  if(m_NumOptPassesPic > 1)
+  {
+    m_EntropyEst.Init(m_HTs);
+  }
+  for(int32 i = 0; i < (int32)m_EntropyEncs.size(); i++) { m_EntropyEncs[i].Init(m_HTs); }
+}
+void xAdvancedEncoder::xCntPic(const int16* CoeffsScanV[])
+{
+  const int32 NumCounters = (int32)m_EntropyCnts.size();
+  for(int32 i = 0; i < NumCounters; i++) { m_EntropyCnts[i].Init(m_HTs); }
+
+  //count symbols
+  for(int32 CmpIdx = 0; CmpIdx < m_NumOfComponents; CmpIdx++)
+  {
+    const int32  HuffTabIdDC       = m_SOS.getHuffTableIdDC(eCmp(CmpIdx));
+    const int32  HuffTabIdAC       = m_SOS.getHuffTableIdAC(eCmp(CmpIdx));
+    const int32  BlocksPerSlice    = m_RestartInterval * m_NumBlocksInMCU[CmpIdx];
+    const int32  NumBlocksInWidth  = m_NumBlocksInWidth [CmpIdx];
+    const int32  NumBlocksInHeight = m_NumBlocksInHeight[CmpIdx];
+    const int16* CoeffsScan         = CoeffsScanV[CmpIdx];
+
+    for(int32 BlockRowIdx = 0; BlockRowIdx < NumBlocksInHeight; BlockRowIdx++) //loop over block rows
+    {
+      const int32 BlockIdxBeg = BlockRowIdx * NumBlocksInWidth;
+      const int32 BlockIdxEnd = BlockIdxBeg + NumBlocksInWidth;
+      m_ThPI.storeTask([this, CoeffsScan, HuffTabIdDC, HuffTabIdAC, BlockIdxBeg, BlockIdxEnd, BlocksPerSlice](int32 ThIdx) { xCntRng(CoeffsScan, ThIdx, HuffTabIdDC, HuffTabIdAC, BlockIdxBeg, BlockIdxEnd, BlocksPerSlice); });
+    }
+  }
+  m_ThPI.executeStoredTasks();
+
+  //agregate counters
+  for(int32 i = 1; i < NumCounters; i++)
+  {
+    m_EntropyCnts[0].AddCounters(m_EntropyCnts[i]);
+  }
+}
+void xAdvancedEncoder::xCntRng(const int16* CoeffsScan, int32 CounterIdx, int32 HuffTabIdDC, int32 HuffTabIdAC, int32 BlockIdxBeg, int32 BlockIdxEnd, int32 BlocksPerSlice)
+{
+  for(int32 BlockIdx = BlockIdxBeg; BlockIdx < BlockIdxEnd; BlockIdx++)
+  {
+    const int32 CoeffOffset = BlockIdx << c_L2BA;
+    const bool  FirstInSlc  = BlockIdx == 0 || (m_RestartInterval > 0 && BlockIdx % BlocksPerSlice == 0);
+    const int32 LastDC      = FirstInSlc ? 0 : CoeffsScan[CoeffOffset - c_BA];
+    m_EntropyCnts[CounterIdx].CountBlock(CoeffsScan + CoeffOffset, LastDC, HuffTabIdDC, HuffTabIdAC);
+  }
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+void xAdvancedEncoder::xHuffEncPic(const int16* CoeffsScanV[])
+{
+  if(m_RestartInterval == 0) //no division - however, try process picture in MCU rows
+  {
+    if(!m_ThPI.isActive()) //no active thread pool - encode entire picture at once
+    {
+      xHuffEncSlc(CoeffsScanV, 0, 0, m_NumMCUsInArea - 1);
+    }
+    else //encode picture in MCU 
+    {
+      for(int32 MCU_RowIdx = 0; MCU_RowIdx < m_NumMCUsInHeight; MCU_RowIdx++) //loop over MCUs rows
+      {
+        const int32 MCU_IdxFirst = MCU_RowIdx   * m_NumMCUsInWidth;
+        const int32 MCU_IdxLast  = MCU_IdxFirst + m_NumMCUsInWidth - 1;        
+        m_ThPI.storeTask([this, &CoeffsScanV, MCU_RowIdx, MCU_IdxFirst, MCU_IdxLast](int32 /*ThIdx*/) { xHuffEncChk(CoeffsScanV, MCU_RowIdx, MCU_IdxFirst, MCU_IdxLast); });
+      }
+    }
   }
   else //divide picture into independent slices
   {
-    for(int32 SliceIdx = 0, MCU_IdxFirst = 0; MCU_IdxFirst < m_NumMCUsInArea; SliceIdx++, MCU_IdxFirst += m_RestartInterval)
+    for(int32 SliceIdx = 0; SliceIdx < m_NumOfSlices; SliceIdx++) //loop over slices
     {
-      int32 MCU_IdxLast = xMin(m_NumMCUsInArea, MCU_IdxFirst + m_RestartInterval) - 1;
-      xHuffEncSlc(OutputBuffer, CoeffsScanV, MCU_IdxFirst, MCU_IdxLast);
-      if(MCU_IdxLast != m_NumMCUsInArea - 1) { xJFIF::WriteRST(OutputBuffer, (uint8)((uint32)SliceIdx & (uint32)0x07)); }
+      const int32 MCU_IdxFirst = SliceIdx * m_RestartInterval;
+      const int32 MCU_IdxLast  = xMin(m_NumMCUsInArea, MCU_IdxFirst + m_RestartInterval) - 1;
+      m_ThPI.storeTask([this, &CoeffsScanV, SliceIdx, MCU_IdxFirst, MCU_IdxLast](int32 /*ThIdx*/) { xHuffEncSlc(CoeffsScanV, SliceIdx, MCU_IdxFirst, MCU_IdxLast); });
     }
   }
+  m_ThPI.executeStoredTasks();
 }
-void xAdvancedEncoder::xHuffEncSlc(xByteBuffer* OutputBuffer, const int16* CoeffsScanV[], int32 MCU_IdxFirst, int32 MCU_IdxLast)
+void xAdvancedEncoder::xHuffEncSlc(const int16* CoeffsScanV[], int32 SliceIdx, int32 MCU_IdxFirst, int32 MCU_IdxLast)
 {
-  tTimePoint TP0 = m_GatherTimeStats ? tClock::now() : tTimePoint();
-
-  m_EntropyBuffer.reset();
-  m_EntropyEnc.StartSlice(&m_EntropyBuffer);
+  m_EncBuffers [SliceIdx].reset();
+  m_EntropyEncs[SliceIdx].StartSlice(&m_EncBuffers[SliceIdx]);
 
   //loop over MCUs
   for(int32 MCU_Idx = MCU_IdxFirst; MCU_Idx <= MCU_IdxLast; MCU_Idx++)
   {
-    xHuffEncMCU(CoeffsScanV, MCU_Idx);
+    xHuffEncMCU(CoeffsScanV, SliceIdx, MCU_Idx);
   }
 
-  m_EntropyEnc.FinishSlice();
+  m_EntropyEncs[SliceIdx].FinishSlice();
 
-  tTimePoint TP1 = m_GatherTimeStats ? tClock::now() : tTimePoint();
-
-  //copy to output and add stuffing
-  xJFIF::AddStuffing(OutputBuffer, &m_EntropyBuffer);
-
-  tTimePoint TP2 = m_GatherTimeStats ? tClock::now() : tTimePoint();
-
-  if(m_GatherTimeStats)
-  {
-    m_TotalSliceIters   += 1;
-    m_TotalEntropyTime  += TP2 - TP0;
-    m_TotalStuffingTime += TP2 - TP1;
-  }
-
+  m_SliceBuffers[SliceIdx].reset();
+  xJFIF::AddStuffing(&m_SliceBuffers[SliceIdx], &m_EncBuffers[SliceIdx]);
 }
-void xAdvancedEncoder::xHuffEncMCU(const int16* CoeffsScanV[], int32 MCU_Idx)
+void xAdvancedEncoder::xHuffEncChk(const int16* CoeffsScanV[], int32 ChunkIdx, int32 MCU_IdxFirst, int32 MCU_IdxLast)
+{
+  xEntropyCommon::tLDCs LastDCs = { 0,0,0,0 };
+  if(MCU_IdxFirst != 0)
+  {
+    for(int32 CmpIdx = 0; CmpIdx < m_NumOfComponents; CmpIdx++)
+    {
+      const int32 BlockIdx    = MCU_IdxFirst * m_SampFactorVer[CmpIdx] * m_SampFactorHor[CmpIdx];
+      const int32 CoeffOffset = BlockIdx << c_L2BA;
+      const int16 LastDC      = CoeffsScanV[CmpIdx][CoeffOffset - c_BA];
+      LastDCs[CmpIdx] = LastDC;
+    }
+  }
+
+  m_EncBuffers [ChunkIdx].reset();
+  m_EntropyEncs[ChunkIdx].StartChunk(&m_EncBuffers[ChunkIdx], LastDCs);
+
+  //loop over MCUs
+  for(int32 MCU_Idx = MCU_IdxFirst; MCU_Idx <= MCU_IdxLast; MCU_Idx++)
+  {
+    xHuffEncMCU(CoeffsScanV, ChunkIdx, MCU_Idx);
+  }
+
+  m_NumAlignmentBits[ChunkIdx] = m_EntropyEncs[ChunkIdx].FinishChunk();
+}
+void xAdvancedEncoder::xHuffEncMCU(const int16* CoeffsScanV[], int32 SliceIdx, int32 MCU_Idx)
 {
   //estimate blocks
   for(int32 CmpIdx = 0; CmpIdx < m_NumOfComponents; CmpIdx++)
@@ -737,9 +1005,54 @@ void xAdvancedEncoder::xHuffEncMCU(const int16* CoeffsScanV[], int32 MCU_Idx)
     {
       for(int32 H = 0; H < m_SampFactorHor[CmpIdx]; H++)
       {
-        const int32 CoeffScanOffset = BlockIdx << xJPEG_Constants::c_Log2BlockArea;        
-        m_EntropyEnc.EncodeBlock(CoeffsScanV[CmpIdx] + CoeffScanOffset, eCmp(CmpIdx), HuffTabIdDC, HuffTabIdAC);
+        const int32 CoeffScanOffset = BlockIdx << c_L2BA;        
+        m_EntropyEncs[SliceIdx].EncodeBlock(CoeffsScanV[CmpIdx] + CoeffScanOffset, eCmp(CmpIdx), HuffTabIdDC, HuffTabIdAC);
         BlockIdx++;
+      }
+    }
+  }
+}
+
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+void xAdvancedEncoder::xWritePic(xByteBuffer* OutputBuffer)
+{
+  if(m_RestartInterval == 0)
+  {
+    if(!m_ThPI.isActive())
+    {
+      OutputBuffer->transfer(&m_SliceBuffers[0]);
+    }
+    else
+    {
+      m_CombineBuffer.reset();
+      xBitstreamWriter Bitstream;
+      Bitstream.bindByteBuffer(&m_CombineBuffer);
+      Bitstream.init();
+      for(int32 MCU_RowIdx = 0; MCU_RowIdx < m_NumMCUsInHeight; MCU_RowIdx++)
+      {
+        Bitstream.writeBuffer(&m_EncBuffers[MCU_RowIdx], m_NumAlignmentBits[MCU_RowIdx]);
+      }
+      Bitstream.writeAlign(1);
+      Bitstream.uninit();
+      Bitstream.unbindByteBuffer();
+      xJFIF::AddStuffing(OutputBuffer, &m_CombineBuffer);
+    }
+  }
+  else
+  {
+    for(int32 SliceIdx = 0; SliceIdx < m_NumOfSlices; SliceIdx++)
+    {
+      const int32 MCU_IdxFirst = SliceIdx * m_RestartInterval;
+      const int32 MCU_IdxLast = xMin(m_NumMCUsInArea, MCU_IdxFirst + m_RestartInterval) - 1;
+      //copy to output and add stuffing
+      OutputBuffer->transfer(&m_SliceBuffers[SliceIdx]);
+      if(m_RestartInterval >= 0)
+      {
+        if(MCU_IdxLast != m_NumMCUsInArea - 1)
+        {
+          xJFIF::WriteRST(OutputBuffer, (uint8)((uint32)SliceIdx & (uint32)0x07));
+        }
       }
     }
   }

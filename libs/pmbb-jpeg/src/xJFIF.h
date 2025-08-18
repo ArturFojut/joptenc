@@ -230,7 +230,7 @@ public:
   class xHuffTable
   {
   public:
-    using tCodeL = std::array<byte, 16>;
+    using tCodeL = std::array<byte, xJPEG_Constants::c_NumCodeLenghts>;
 
     enum class eHuffClass : int8
     {
@@ -238,6 +238,17 @@ public:
       DC = 0,
       AC = 1,
     };
+
+    static tStr xHuffClass2Str(eHuffClass HuffClass)
+    {
+      switch(HuffClass)
+      {
+      case eHuffClass::Invalid: return "Invalid";
+      case eHuffClass::DC     : return "DC"     ;
+      case eHuffClass::AC     : return "AC"     ;
+      default                 : return "Unknown";
+      }
+    }
 
   protected:
     uint8      m_Idx   = 0;
@@ -249,8 +260,10 @@ public:
     int32 Absorb     (xByteBuffer* Input );
     int32 Emit       (xByteBuffer* Output) const; 
     void  InitDefault(uint8 Idx, eHuffClass Class, eCmp Cmp);
+    void  InitCustom (uint8 Idx, eHuffClass Class, const uint8* LengthTable);
     bool  Validate   () const;
-    int32 getLength  () const { return 1 + 16 + (int32)m_CodeSymbols.size(); }
+    tStr  Format     (const tStr& Prefix = "  ") const;
+    int32 getLength  () const { return 1 + xJPEG_Constants::c_NumCodeLenghts + (int32)m_CodeSymbols.size(); }
 
   public:
     int32      getIdx  (         ) const { return m_Idx;   }
@@ -263,6 +276,12 @@ public:
 
     bool isDC() const { return (m_Class == eHuffClass::DC);}
     bool isAC() const { return (m_Class == eHuffClass::AC);}
+
+    int32        getMaxNumCodeSymbols() const { return isDC() ? xJPEG_Constants::c_MaxNumCodeSymbolsDC : isAC() ? xJPEG_Constants::c_MaxNumCodeSymbolsAC : NOT_VALID; }
+    static int32 getMaxNumCodeSymbols(eHuffClass Class) { return Class == eHuffClass::DC ? xJPEG_Constants::c_MaxNumCodeSymbolsDC : Class == eHuffClass::AC ? xJPEG_Constants::c_MaxNumCodeSymbolsAC : NOT_VALID; }
+
+  protected:
+
   };
 
 //-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -339,8 +358,9 @@ public:
   static int64   SeekNextSegment (std::ifstream* Input, eMarker Marker);
 
 public: 
-  static void    AddStuffing     (xByteBuffer* Output, xByteBuffer* Input);
-  static void    RemoveStuffing  (xByteBuffer* Output, xByteBuffer* Input);
+  //static void    AddStuffingAVX512(xByteBuffer* Output, xByteBuffer* Input);
+  static void    AddStuffing      (xByteBuffer* Output, xByteBuffer* Input);
+  static void    RemoveStuffing   (xByteBuffer* Output, xByteBuffer* Input);
       
 protected:
   static uint8   xPeek8          (xByteBuffer* Input ) { return Input ->peekU8    ();  }
@@ -368,8 +388,8 @@ protected:
   static void    xWriteVector    (xByteBuffer* Output, const tByteV& SrcVec) { Output->appendBytes(SrcVec.data(), (int32)SrcVec.size()); }
   static void    xWriteMarker    (xByteBuffer* Output, eMarker Marker) { xWrite8(Output, 0xFF); xWrite8(Output, (uint8)Marker); }
 
-  static bool xFitsU8 (int32 V) { return V >= (int32)uint8_min  && V <= (int32)uint8_max ; }
-  static bool xFitsU16(int32 V) { return V >= (int32)uint16_min && V <= (int32)uint16_max; }
+  static bool    xFitsU8 (int32 V) { return V >= (int32)std::numeric_limits<uint8 >::min() && V <= (int32)std::numeric_limits<uint8 >::max(); }
+  static bool    xFitsU16(int32 V) { return V >= (int32)std::numeric_limits<uint16>::min() && V <= (int32)std::numeric_limits<uint16>::max(); }
 };
 
 //=============================================================================================================================================================================

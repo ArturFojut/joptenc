@@ -12,7 +12,7 @@ namespace PMBB_NAMESPACE::JPEG {
 // xScanAVX512
 //=============================================================================================================================================================================
 #if X_SIMD_CAN_USE_AVX512
-void xScanAVX512::Scan(int16* ScanCoeff, const int16* Coeff)
+void xScanAVX512::Scan(int16* restrict ScanCoeff, const int16* Coeff)
 {
   __m512i Coeff_I16_V0     = _mm512_loadu_si512((__m512i*)(Coeff     ));
   __m512i Coeff_I16_V1     = _mm512_loadu_si512((__m512i*)(Coeff + 32));
@@ -29,7 +29,7 @@ void xScanAVX512::Scan(int16* ScanCoeff, const int16* Coeff)
   _mm512_storeu_si512((__m512i*)(ScanCoeff     ), ScanCoeff_I16_V0);
   _mm512_storeu_si512((__m512i*)(ScanCoeff + 32), ScanCoeff_I16_V1);
 }
-void xScanAVX512::InvScan(int16* Coeff, const int16* ScanCoeff)
+void xScanAVX512::InvScan(int16* restrict Coeff, const int16* ScanCoeff)
 {
   __m512i ScanCoeff_I16_V0 = _mm512_loadu_si512((__m512i*)(ScanCoeff     ));
   __m512i ScanCoeff_I16_V1 = _mm512_loadu_si512((__m512i*)(ScanCoeff + 32));
@@ -65,22 +65,22 @@ template <uint32 First, uint32 Last> struct xcStaticFor
 };
 };
 
-void xScanSTD::Scan(int16* ScanCoeff, const int16* Coeff)
+void xScanSTD::Scan(int16* restrict ScanCoeff, const int16* Coeff)
 {
 #if defined _MSC_VER
-  for(int32 i = 0; i < 64; i++) { ScanCoeff[i] = Coeff[xJPEG_Constants::m_ScanZigZag[i]]; }  
+  for(int32 i = 0; i < xJPEG_Constants::c_BlockArea; i++) { ScanCoeff[i] = Coeff[xJPEG_Constants::m_ScanZigZag[i]]; }  
 #else
   //static loop unroll, only for not-MSVC since MSVC does not understand this idea and producess terrible assembly
-  xcStaticFor<0, 64>::apply([&](uint32 i) { ScanCoeff[i] = Coeff[xJPEG_Constants::m_ScanZigZag[i]]; }); 
+  xcStaticFor<0, xJPEG_Constants::c_BlockArea>::apply([&](uint32 i) { ScanCoeff[i] = Coeff[xJPEG_Constants::m_ScanZigZag[i]]; });
 #endif
 }
-void xScanSTD::InvScan(int16* Coeff, const int16* ScanCoeff)
+void xScanSTD::InvScan(int16* restrict Coeff, const int16* ScanCoeff)
 {
 #if defined _MSC_VER
-  for(int32 i = 0; i < 64; i++) { Coeff[i] = ScanCoeff[xJPEG_Constants::m_InvScanZigZag[i]]; }  
+  for(int32 i = 0; i < xJPEG_Constants::c_BlockArea; i++) { Coeff[i] = ScanCoeff[xJPEG_Constants::m_InvScanZigZag[i]]; }
 #else
   //static loop unroll, only for not-MSVC since MSVC does not understand this idea and producess terrible assembly
-  xcStaticFor<0, 64>::apply([&](uint32 i) { Coeff[i] = ScanCoeff[xJPEG_Constants::m_InvScanZigZag[i]]; });
+  xcStaticFor<0, xJPEG_Constants::c_BlockArea>::apply([&](uint32 i) { Coeff[i] = ScanCoeff[xJPEG_Constants::m_InvScanZigZag[i]]; });
 #endif
 }
 

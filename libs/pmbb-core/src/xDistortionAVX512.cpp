@@ -13,7 +13,7 @@ namespace PMBB_NAMESPACE {
 
 int32 xDistortionAVX512::CalcSD(const uint16* restrict Tst, const uint16* restrict Ref, int32 Area)
 {
-  const int32 Area32  = (int32)((uint32)Area & c_MultipleMask32);
+  const int32 Area32  = (int32)((uint32)Area & c_MultipleMask32<uint32>);
   __m512i     SD_V512 = _mm512_setzero_si512();
 
   for (int32 i = 0; i < Area32; i += 32)
@@ -43,7 +43,7 @@ int32 xDistortionAVX512::CalcSD(const uint16* restrict Tst, const uint16* restri
 int32 xDistortionAVX512::CalcSD(const uint16* restrict Tst, const uint16* restrict Ref, int32 TstStride, int32 RefStride, int32 Width, int32 Height)
 {
   __m512i SD_V512 = _mm512_setzero_si512();
-  if(((uint32)Width & c_RemainderMask32) == 0) //Width%32==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask32<uint32>) == 0) //Width%32==0 - fast path without tail
   {
     for(int32 y = 0; y < Height; y++)
     {
@@ -63,7 +63,7 @@ int32 xDistortionAVX512::CalcSD(const uint16* restrict Tst, const uint16* restri
   }
   else //any other
   {
-    const int32 Width32 = (int32)((uint32)Width & c_MultipleMask32);
+    const int32 Width32 = (int32)((uint32)Width & c_MultipleMask32<uint32>);
     for(int32 y = 0; y < Height; y++)
     {
       for(int32 x = 0; x < Width32; x += 32)
@@ -76,7 +76,7 @@ int32 xDistortionAVX512::CalcSD(const uint16* restrict Tst, const uint16* restri
         __m512i Sum_V512   = _mm512_add_epi32     (Diff_V512A, Diff_V512B);
         SD_V512 = _mm512_add_epi32(SD_V512, Sum_V512);
       } //x
-      const uint32    Remainder32 = (uint32)Width & c_RemainderMask32;
+      const uint32    Remainder32 = (uint32)Width & c_RemainderMask32<uint32>;
       const __mmask32 Mask        = ((uint32)1 << Remainder32) - 1;
       __m512i Tst_V512   = _mm512_maskz_loadu_epi16(Mask, (__m512i*)&Tst [Width32]);
       __m512i Ref_V512  = _mm512_maskz_loadu_epi16(Mask, (__m512i*)&Ref[Width32]);
@@ -103,7 +103,7 @@ int32 xDistortionAVX512::CalcSD(const uint16* restrict Tst, const uint16* restri
 }
 uint32 xDistortionAVX512::CalcSAD(const uint16* restrict Tst, const uint16* restrict Ref, int32 Area)
 {
-  const int32 Area32  = (int32)((uint32)Area & c_MultipleMask32);
+  const int32 Area32  = (int32)((uint32)Area & c_MultipleMask32<uint32>);
   __m512i SAD_I32_V512 = _mm512_setzero_si512();
 
   for (int32 i = 0; i < Area32; i += 32)
@@ -127,7 +127,7 @@ uint32 xDistortionAVX512::CalcSAD(const uint16* restrict Tst, const uint16* rest
 uint32 xDistortionAVX512::CalcSAD(const uint16* restrict Tst, const uint16* restrict Ref, int32 TstStride, int32 RefStride, int32 Width, int32 Height)
 {
   __m512i SAD_I32_V512 = _mm512_setzero_si512();
-  if(((uint32)Width & c_RemainderMask32) == 0) //Width%32==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask32<uint32>) == 0) //Width%32==0 - fast path without tail
   {
     for(int32 y = 0; y < Height; y++)
     {
@@ -150,7 +150,7 @@ uint32 xDistortionAVX512::CalcSAD(const uint16* restrict Tst, const uint16* rest
   }
   else //any other
   {
-    const int32 Width32 = (int32)((uint32)Width & c_MultipleMask32);
+    const int32 Width32 = (int32)((uint32)Width & c_MultipleMask32<uint32>);
     for(int32 y = 0; y < Height; y++)
     {
       for(int32 x = 0; x < Width32; x += 32)
@@ -166,7 +166,7 @@ uint32 xDistortionAVX512::CalcSAD(const uint16* restrict Tst, const uint16* rest
         __m512i SumA_I32V512   = _mm512_add_epi32(AbsD_I32_V512A, AbsD_I32_V512B);
         SAD_I32_V512 = _mm512_add_epi32(SAD_I32_V512, SumA_I32V512);
       } //x
-      const uint32    Remainder32 = (uint32)Width & c_RemainderMask32;
+      const uint32    Remainder32 = (uint32)Width & c_RemainderMask32<uint32>;
       const __mmask32 Mask        = ((uint32)1 << Remainder32) - 1;
       __m512i Tst_U16_V512   = _mm512_maskz_loadu_epi16(Mask, (__m512i*)&Tst [Width32]);
       __m512i Ref_U16_V512   = _mm512_maskz_loadu_epi16(Mask, (__m512i*)&Ref[Width32]);
@@ -188,7 +188,7 @@ uint32 xDistortionAVX512::CalcSAD(const uint16* restrict Tst, const uint16* rest
 }
 uint64 xDistortionAVX512::CalcSSD(const uint16* restrict Tst, const uint16* restrict Ref, int32 Area)
 {
-  const int32 Area32   = (int32)((uint32)Area & c_MultipleMask32);
+  const int32 Area32   = (int32)((uint32)Area & c_MultipleMask32<uint32>);
   __m512i     SSD_V512 = _mm512_setzero_si512();
 
   for(int32 i = 0; i < Area32; i += 32)
@@ -210,7 +210,7 @@ uint64 xDistortionAVX512::CalcSSD(const uint16* restrict Tst, const uint16* rest
 uint64 xDistortionAVX512::CalcSSD(const uint16* restrict Tst, const uint16* restrict Ref, int32 TstStride, int32 RefStride, int32 Width, int32 Height)
 {
   __m512i SSD_V512 = _mm512_setzero_si512();
-  if(((uint32)Width & c_RemainderMask32)==0) //Width%32==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask32<uint32>)==0) //Width%32==0 - fast path without tail
   {
     for(int32 y=0; y<Height; y++)
     {
@@ -231,7 +231,7 @@ uint64 xDistortionAVX512::CalcSSD(const uint16* restrict Tst, const uint16* rest
   }
   else //any other
   {
-    const int32  Width32 = (int32)((uint32)Width & c_MultipleMask32);
+    const int32  Width32 = (int32)((uint32)Width & c_MultipleMask32<uint32>);
     for(int32 y=0; y<Height; y++)
     {
       for (int32 x = 0; x < Width32; x += 32)
@@ -245,7 +245,7 @@ uint64 xDistortionAVX512::CalcSSD(const uint16* restrict Tst, const uint16* rest
         __m512i Sum_V512  = _mm512_add_epi64     (Pow_V512A, Pow_V512B);
         SSD_V512 = _mm512_add_epi64(SSD_V512, Sum_V512);
       } //x
-      const uint32    Remainder32 = (uint32)Width & c_RemainderMask32;
+      const uint32    Remainder32 = (uint32)Width & c_RemainderMask32<uint32>;
       const __mmask32 Mask        = ((uint32)1 << Remainder32) - 1;
       __m512i Tst_V512  = _mm512_maskz_loadu_epi16(Mask, (__m512i*) & Tst[Width32]);
       __m512i Ref_V512  = _mm512_maskz_loadu_epi16(Mask, (__m512i*) & Ref[Width32]);

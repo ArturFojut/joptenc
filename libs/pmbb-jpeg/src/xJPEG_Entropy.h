@@ -14,15 +14,9 @@ namespace PMBB_NAMESPACE::JPEG {
 
 class xEntropyCommon
 {
-protected:
-  int16  m_LastDC[xJPEG_Constants::c_MaxComponents];
-
 public:
-  uint32 getLastDC   (eCmp   Cmp) const { return m_LastDC[(uint32)Cmp]; }
-
-protected:
-  static uint32 xNumBits    (uint32 Val) { return 32 - xLZCNT(Val);  }
-  void   xResetLastDC(          ) { memset(m_LastDC, 0, sizeof(m_LastDC)); }
+  using tLDCs = std::array<int16, xJPEG_Constants::c_MaxComponents>;
+  static constexpr tLDCs c_InitLastDCs = { 0, 0, 0, 0 };
 
 #if X_SIMD_CAN_USE_AVX512
 #define X_CAN_USE_AVX512 1
@@ -30,15 +24,37 @@ protected:
 #else //X_SIMD_CAN_USE_AVX512
 #define X_CAN_USE_AVX512 0
 #endif //X_SIMD_CAN_USE_AVX512
+
+#if X_SIMD_CAN_USE_AVX
+#define X_CAN_USE_AVX 1
+  static int32 findLastNonZeroAVX(const int16* ScanCoeff);
+#else //X_SIMD_CAN_USE_AVX
+#define X_CAN_USE_AVX 0
+#endif //X_SIMD_CAN_USE_AVX
+
+#if X_SIMD_CAN_USE_SSE
+#define X_CAN_USE_SSE 1
+  static int32 findLastNonZeroSSE(const int16* ScanCoeff);
+#else //X_SIMD_CAN_USE_SSE
+#define X_CAN_USE_SSE 0
+#endif //X_SIMD_CAN_USE_SSE
     
   static int32 findLastNonZeroSTD(const int16* ScanCoeff);
 
 public:
 #if X_CAN_USE_AVX512
   static inline int32 findLastNonZero(const int16* ScanCoeff) { return findLastNonZeroAVX512(ScanCoeff); }
+#elif X_CAN_USE_AVX
+  static inline int32 findLastNonZero(const int16* ScanCoeff) { return findLastNonZeroAVX   (ScanCoeff); }
+#elif X_CAN_USE_SSE
+  static inline int32 findLastNonZero(const int16* ScanCoeff) { return findLastNonZeroSSE   (ScanCoeff); }
 #else
   static inline int32 findLastNonZero(const int16* ScanCoeff) { return findLastNonZeroSTD   (ScanCoeff); }
 #endif
+
+#undef X_CAN_USE_AVX512
+#undef X_CAN_USE_AVX
+#undef X_CAN_USE_SSE
 };
 
 //=====================================================================================================================================================================================
@@ -49,6 +65,7 @@ protected:
   xHuffDecoder*    m_HuffDecoderDC[xJPEG_Constants::c_MaxHuffTabs];
   xHuffDecoder*    m_HuffDecoderAC[xJPEG_Constants::c_MaxHuffTabs];
   xBitstreamReader m_Bitstream;
+  tLDCs            m_LastDC;
 
 public:
   xEntropyDecoder () { memset(m_HuffDecoderDC, 0, sizeof(m_HuffDecoderDC)); memset(m_HuffDecoderAC, 0, sizeof(m_HuffDecoderAC)); }
@@ -69,6 +86,7 @@ protected:
   xHuffEncoderDC*  m_HuffEncoderDC[xJPEG_Constants::c_MaxHuffTabs];
   xHuffEncoderAC*  m_HuffEncoderAC[xJPEG_Constants::c_MaxHuffTabs];
   xBitstreamWriter m_Bitstream;
+  tLDCs            m_LastDC;
 
 public:
   xEntropyEncoder () { memset(m_HuffEncoderDC, 0, sizeof(m_HuffEncoderDC)); memset(m_HuffEncoderAC, 0, sizeof(m_HuffEncoderAC)); }
@@ -78,6 +96,8 @@ public:
 
   void  StartSlice (xByteBuffer* ByteBuffer);
   void  FinishSlice();
+  void  StartChunk (xByteBuffer* ByteBuffer, const tLDCs& LastDCs);
+  int32 FinishChunk();
   void  EncodeBlock(const int16* ScanCoeff, eCmp Cmp, int32 HuffTableIdDC, int32 HuffTableIdAC);
 };
 
@@ -87,6 +107,7 @@ class xEntropyEncoderDefault : public xEntropyCommon
 {
 protected:
   xBitstreamWriter m_Bitstream;
+  tLDCs            m_LastDC;
 
 public:
   xEntropyEncoderDefault () { }
@@ -108,8 +129,8 @@ protected:
 class xEntropyEstimator : public xEntropyCommon
 {
 protected:
-  xHuffEstimatorDC*  m_HuffEstimatorDC[xJPEG_Constants::c_MaxHuffTabs];
-  xHuffEstimatorAC*  m_HuffEstimatorAC[xJPEG_Constants::c_MaxHuffTabs];
+  xHuffEstimatorDC* m_HuffEstimatorDC[xJPEG_Constants::c_MaxHuffTabs];
+  xHuffEstimatorAC* m_HuffEstimatorAC[xJPEG_Constants::c_MaxHuffTabs];
 
 public:
   xEntropyEstimator () { memset(m_HuffEstimatorDC, 0, sizeof(m_HuffEstimatorDC)); memset(m_HuffEstimatorAC, 0, sizeof(m_HuffEstimatorAC)); }
@@ -117,12 +138,9 @@ public:
   bool  Init  (std::vector<xJFIF::xHuffTable>& HuffTables);
   void  UnInit();
 
-  void  StartSlice() { xResetLastDC(); }
-  int32 EstimateBlock(const int16* ScanCoeff, eCmp Cmp, int32 HuffTableIdDC, int32 HuffTableIdAC);
-  int32 EstimateBlockStateless(const int16* ScanCoeff, int32 LastDC, int32 HuffTableIdDC, int32 HuffTableIdAC) const;
-
-protected:
-  int32 xEstimateBlockCommon(const int16* ScanCoeff, int32 DeltaDC, int32 HuffTableIdDC, int32 HuffTableIdAC) const;
+  int32 EstimateBlock  (const int16* ScanCoeff, int32 LastDC, int32 HuffTableIdDC, int32 HuffTableIdAC) const;
+  int32 EstimateBlockDC(const int16* ScanCoeff, int32 LastDC, int32 HuffTableIdDC                     ) const;
+  int32 EstimateBlockAC(const int16* ScanCoeff,                                    int32 HuffTableIdAC) const;
 };
 
 //=====================================================================================================================================================================================
@@ -135,14 +153,10 @@ public:
   bool  Init  (std::vector<xJFIF::xHuffTable>& /*HuffTables*/) { return true; };
   void  UnInit() {};
 
-  void  StartSlice() { xResetLastDC(); }
-  int32 EstimateBlock(const int16* ScanCoeff, eCmp Cmp);
-  static int32 EstimateBlockStateless(const int16* ScanCoeff, int32 LastDC);
+  static int32 EstimateBlock(const int16* ScanCoeff, int32 LastDC, eCmp Cmp);
 protected:
-  static inline int32 xEstimateBlockStatelessL(const int16* ScanCoeff, int32 LastDC ) { return xEstimateBlockCommonL(ScanCoeff, ScanCoeff[0] - LastDC); }
-  static inline int32 xEstimateBlockStatelessC(const int16* ScanCoeff, int32 LastDC ) { return xEstimateBlockCommonC(ScanCoeff, ScanCoeff[0] - LastDC); }
-  static int32        xEstimateBlockCommonL   (const int16* ScanCoeff, int32 DeltaDC);
-  static int32        xEstimateBlockCommonC   (const int16* ScanCoeff, int32 DeltaDC);
+  static int32 xEstimateBlockL(const int16* ScanCoeff, int32 LastDC);
+  static int32 xEstimateBlockC(const int16* ScanCoeff, int32 LastDC);
 };
 
 //=====================================================================================================================================================================================
@@ -150,8 +164,8 @@ protected:
 class xEntropyCounter : public xEntropyCommon
 {
 protected:
-  xHuffCounterDC*  m_HuffCounterDC[xJPEG_Constants::c_MaxHuffTabs];
-  xHuffCounterAC*  m_HuffCounterAC[xJPEG_Constants::c_MaxHuffTabs];
+  xHuffCounterDC* m_HuffCounterDC[xJPEG_Constants::c_MaxHuffTabs];
+  xHuffCounterAC* m_HuffCounterAC[xJPEG_Constants::c_MaxHuffTabs];
 
 public:
   xEntropyCounter () { memset(m_HuffCounterDC, 0, sizeof(m_HuffCounterDC)); memset(m_HuffCounterAC, 0, sizeof(m_HuffCounterAC)); }
@@ -159,7 +173,19 @@ public:
   bool  Init  (std::vector<xJFIF::xHuffTable>& HuffTables);
   void  UnInit();
 
-  void  CountBlock(const int16* ScanCoeff, int32 LastDC, int32 HuffTableIdDC, int32 HuffTableIdAC);
+  void  ZeroCounters();
+  void  CountBlock  (const int16* ScanCoeff, int32 LastDC, int32 HuffTableIdDC, int32 HuffTableIdAC);
+  void  AddCounters (const xEntropyCounter& Other);
+
+  const uint32* getSymbolCountDC(int32 HuffTableIdDC) { return m_HuffCounterDC[HuffTableIdDC]->getSymbolCount(); }
+  const uint32* getSymbolCountAC(int32 HuffTableIdAC) { return m_HuffCounterAC[HuffTableIdAC]->getSymbolCount(); }
+
+  const uint32* getSymbolCount(xJFIF::xHuffTable::eHuffClass HuffClass, int32 HuffTableId)
+  {
+    if(HuffClass == xJFIF::xHuffTable::eHuffClass::DC) { return m_HuffCounterDC[HuffTableId]->getSymbolCount(); }
+    if(HuffClass == xJFIF::xHuffTable::eHuffClass::AC) { return m_HuffCounterAC[HuffTableId]->getSymbolCount(); }
+    return nullptr;
+  }
 };
 
 //=====================================================================================================================================================================================

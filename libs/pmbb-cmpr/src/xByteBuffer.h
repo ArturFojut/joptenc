@@ -106,11 +106,13 @@ public:
   void     align            ();
 
   //read, write
-  uint32   write(std::ostream* Stream) const;
-  uint32   read (std::istream* Stream);
-  uint32   write(xStream* Stream            ) const;
-  uint32   read (xStream* Stream, int32 Size);
-  uint32   read (xStream* Stream            ) { return read(Stream, m_BufferSize); }
+  uint32   write (std::ostream* Stream) const;
+  uint32   read  (std::istream* Stream);
+  uint32   write (xStream* Stream            ) const;
+  uint32   read  (xStream* Stream, int32 Size);
+  uint32   read  (xStream* Stream            ) { return read(Stream, m_BufferSize); }
+  uint32   append(xStream* Stream, int32 Size);
+  uint32   append(xStream* Stream            ) { return append(Stream, getRemainingSize()); }
 
   //interfaces
   byte*       getReadPtr       (                 )       { return m_Buffer + m_DataOffset;}

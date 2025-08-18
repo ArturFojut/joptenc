@@ -9,7 +9,17 @@ namespace PMBB_NAMESPACE::JPEG {
 //===============================================================================================================================================================================================================
 // Forvard and inverse zig-zag scan
 //===============================================================================================================================================================================================================
-//const uint8 xJPEG_Constants::m_ScanZigZag[64];
+const uint8 xJPEG_Constants::m_ScanZigZag[64] =
+{
+   0,  1,  8, 16,  9,  2,  3, 10,
+  17, 24, 32, 25, 18, 11,  4,  5,
+  12, 19, 26, 33, 40, 48, 41, 34,
+  27, 20, 13,  6,  7, 14, 21, 28,
+  35, 42, 49, 56, 57, 50, 43, 36,
+  29, 22, 15, 23, 30, 37, 44, 51,
+  58, 59, 52, 45, 38, 31, 39, 46,
+  53, 60, 61, 54, 47, 55, 62, 63,
+};
 const uint8 xJPEG_Constants::m_InvScanZigZag[64] =
 {
    0,  1,  5,  6, 14, 15, 27, 28,
@@ -235,7 +245,7 @@ void xJPEG_Constants::GenerateQuantTableDef(uint8* QuantTable, eCmp Cmp, int32 Q
   Q = xClip(Q, 1, 100);
 
   //convert to percentage scaling factor
-  int32 ScalingFactor = (Q < 50) ? (ScalingFactor = 5000 / Q) : (ScalingFactor = 200 - Q * 2);
+  int32 ScalingFactor = (Q < 50) ? (5000 / Q) : (200 - Q * 2);
 
   const uint8* QuantizerZ = ((Cmp == eCmp::LM) ? m_QuantTabDefLumaZ : m_QuantTabDefChromaZ);
 

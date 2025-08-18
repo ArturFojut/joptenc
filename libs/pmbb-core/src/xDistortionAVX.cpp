@@ -14,7 +14,7 @@ namespace PMBB_NAMESPACE {
 int32 xDistortionAVX::CalcSD(const uint16* restrict Tst, const uint16* restrict Ref, int32 Area)
 {
   //up to 14 bit input
-  const int32 Area16  = (int32)((uint32)Area & c_MultipleMask16);
+  const int32 Area16  = (int32)((uint32)Area & c_MultipleMask16<uint32>);
   __m256i     SD_V256 = _mm256_setzero_si256();
 
   for (int32 i = 0; i < Area16; i += 16)
@@ -40,7 +40,7 @@ int32 xDistortionAVX::CalcSD(const uint16* restrict Tst, const uint16* restrict 
 int32 xDistortionAVX::CalcSD(const uint16* restrict Tst, const uint16* restrict Ref, int32 TstStride, int32 RefStride, int32 Width, int32 Height)
 {
   //up to 14 bit input
-  if(((uint32)Width & c_RemainderMask16)==0) //Width%16==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask16<uint32>)==0) //Width%16==0 - fast path without tail
   {
     __m256i SD_V256 = _mm256_setzero_si256();
     for(int32 y=0; y<Height; y++)
@@ -68,9 +68,9 @@ int32 xDistortionAVX::CalcSD(const uint16* restrict Tst, const uint16* restrict 
   }
   else //any other
   {
-    const int32 Width16 = (int32)((uint32)Width & c_MultipleMask16);
-    const int32 Width8  = (int32)((uint32)Width & c_MultipleMask8 );
-    const int32 Width4  = (int32)((uint32)Width & c_MultipleMask4 );
+    const int32 Width16 = (int32)((uint32)Width & c_MultipleMask16<uint32>);
+    const int32 Width8  = (int32)((uint32)Width & c_MultipleMask8<uint32> );
+    const int32 Width4  = (int32)((uint32)Width & c_MultipleMask4<uint32> );
     int32   SD      = 0;
     __m256i SD_V256 = _mm256_setzero_si256();
     __m128i SD_V128 = _mm_setzero_si128   ();
@@ -124,7 +124,7 @@ int32 xDistortionAVX::CalcSD(const uint16* restrict Tst, const uint16* restrict 
 }
 uint32 xDistortionAVX::CalcSAD(const uint16* restrict Tst, const uint16* restrict Ref, int32 Area)
 {  
-  const int32 Area16 = (int32)((uint32)Area & c_MultipleMask16);
+  const int32 Area16 = (int32)((uint32)Area & c_MultipleMask16<uint32>);
   __m256i SAD_I32_V256 = _mm256_setzero_si256();
 
   for (int32 i = 0; i < Area16; i += 16)
@@ -147,7 +147,7 @@ uint32 xDistortionAVX::CalcSAD(const uint16* restrict Tst, const uint16* restric
 }
 uint32 xDistortionAVX::CalcSAD(const uint16* restrict Tst, const uint16* restrict Ref, int32 TstStride, int32 RefStride, int32 Width, int32 Height)
 {
-  if(((uint32)Width & c_RemainderMask16)==0) //Width%16==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask16<uint32>)==0) //Width%16==0 - fast path without tail
   {
     __m256i SAD_I32_V256 = _mm256_setzero_si256();
     for(int32 y=0; y<Height; y++)
@@ -173,9 +173,9 @@ uint32 xDistortionAVX::CalcSAD(const uint16* restrict Tst, const uint16* restric
   }
   else //any other
   {
-    const int32 Width16 = (int32)((uint32)Width & c_MultipleMask16);
-    const int32 Width8  = (int32)((uint32)Width & c_MultipleMask8 );
-    const int32 Width4  = (int32)((uint32)Width & c_MultipleMask4 );
+    const int32 Width16 = (int32)((uint32)Width & c_MultipleMask16<uint32>);
+    const int32 Width8  = (int32)((uint32)Width & c_MultipleMask8<uint32> );
+    const int32 Width4  = (int32)((uint32)Width & c_MultipleMask4<uint32> );
     uint32  SAD          = 0;
     __m256i SAD_I32_V256 = _mm256_setzero_si256();
     __m128i SAD_I32_V128 = _mm_setzero_si128   ();
@@ -235,7 +235,7 @@ uint32 xDistortionAVX::CalcSAD(const uint16* restrict Tst, const uint16* restric
 uint64 xDistortionAVX::CalcSSD(const uint16* restrict Tst, const uint16* restrict Ref, int32 Area)
 {
   //up to 14 bit input
-  const int32 Area16   = (int32)((uint32)Area & c_MultipleMask16);
+  const int32 Area16   = (int32)((uint32)Area & c_MultipleMask16<uint32>);
   __m256i     SSD_V256 = _mm256_setzero_si256();
 
   for(int32 i = 0; i < Area16; i += 16)
@@ -260,7 +260,7 @@ uint64 xDistortionAVX::CalcSSD(const uint16* restrict Tst, const uint16* restric
 uint64 xDistortionAVX::CalcSSD(const uint16* restrict Tst, const uint16* restrict Ref, int32 TstStride, int32 RefStride, int32 Width, int32 Height)
 {
   //up to 14 bit input
-  if(((uint32)Width & c_RemainderMask16)==0) //Width%16==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask16<uint32>)==0) //Width%16==0 - fast path without tail
   {
     __m256i SSD_V256 = _mm256_setzero_si256();
     for(int32 y=0; y<Height; y++)
@@ -287,9 +287,9 @@ uint64 xDistortionAVX::CalcSSD(const uint16* restrict Tst, const uint16* restric
   }
   else //any other
   {
-    const int32 Width16 = (int32)((uint32)Width & c_MultipleMask16);
-    const int32 Width8  = (int32)((uint32)Width & c_MultipleMask8 );
-    const int32 Width4  = (int32)((uint32)Width & c_MultipleMask4 );
+    const int32 Width16 = (int32)((uint32)Width & c_MultipleMask16<uint32>);
+    const int32 Width8  = (int32)((uint32)Width & c_MultipleMask8<uint32> );
+    const int32 Width4  = (int32)((uint32)Width & c_MultipleMask4<uint32> );
     uint64  SSD = 0;
     __m256i SSD_V256 = _mm256_setzero_si256();
     __m128i SSD_V128 = _mm_setzero_si128   ();
@@ -345,7 +345,7 @@ uint64 xDistortionAVX::CalcSSD(const uint16* restrict Tst, const uint16* restric
 int64 xDistortionAVX::CalcWeightedSD(const uint16* restrict Tst, const uint16* restrict Ref, const uint16* restrict Msk, int32 Area)
 {
   assert(0); //TODO - NOT TESTED
-  const int32 Area16 = (int32)((uint32)Area & c_MultipleMask16);
+  const int32 Area16 = (int32)((uint32)Area & c_MultipleMask16<uint32>);
   __m256i SD_V256 = _mm256_setzero_si256();
 
   for(int32 i = 0; i < Area16; i += 16)
@@ -379,7 +379,7 @@ int64 xDistortionAVX::CalcWeightedSD(const uint16* restrict Tst, const uint16* r
 {
   assert(0); //TODO - NOT TESTED
 
-  if(((uint32)Width & c_RemainderMask16)==0) //Width%16==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask16<uint32>)==0) //Width%16==0 - fast path without tail
   {
     __m256i SD_V256 = _mm256_setzero_si256();
     for(int32 y=0; y<Height; y++)
@@ -415,7 +415,7 @@ int64 xDistortionAVX::CalcWeightedSD(const uint16* restrict Tst, const uint16* r
   }
   else //any other
   {
-    const int32 Width16 = (int32)((uint32)Width & c_MultipleMask16);
+    const int32 Width16 = (int32)((uint32)Width & c_MultipleMask16<uint32>);
     int64   SD      = 0;
     __m256i SD_V256 = _mm256_setzero_si256();
 
@@ -460,7 +460,7 @@ uint64 xDistortionAVX::CalcWeightedSSD(const uint16* restrict Tst, const uint16*
 {
   assert(0); //TODO - NOT TESTED
 
-  const int32 Area16   = (int32)((uint32)Area & c_MultipleMask16);
+  const int32 Area16   = (int32)((uint32)Area & c_MultipleMask16<uint32>);
   __m256i     SSD_V256 = _mm256_setzero_si256();
 
   for(int32 i = 0; i < Area16; i += 16)
@@ -499,7 +499,7 @@ uint64 xDistortionAVX::CalcWeightedSSD(const uint16* restrict Tst, const uint16*
 uint64 xDistortionAVX::CalcWeightedSSD(const uint16* restrict Tst, const uint16* restrict Ref, const uint16* restrict Msk, int32 TstStride, int32 RefStride, int32 MskStride, int32 Width, int32 Height)
 {
   assert(0); //TODO - NOT TESTED
-  if(((uint32)Width & c_RemainderMask16)==0) //Width%16==0 - fast path without tail
+  if(((uint32)Width & c_RemainderMask16<uint32>)==0) //Width%16==0 - fast path without tail
   {
     __m256i SSD_V256 = _mm256_setzero_si256();
     for(int32 y=0; y<Height; y++)
@@ -537,7 +537,7 @@ uint64 xDistortionAVX::CalcWeightedSSD(const uint16* restrict Tst, const uint16*
   }
   else //any other
   {
-    const int32 Width16 = (int32)((uint32)Width & c_MultipleMask16);
+    const int32 Width16 = (int32)((uint32)Width & c_MultipleMask16<uint32>);
     uint64  SSD = 0;
     __m256i SSD_V256 = _mm256_setzero_si256();
     __m128i SSD_V128 = _mm_setzero_si128   ();

@@ -10,6 +10,7 @@
 #include "../src/xDistortion.h"
 #include "../src/xPlane.h"
 #include "../src/xTestUtils.h"
+#include "xTimeUtils.h"
 
 using namespace PMBB_NAMESPACE;
 
@@ -32,6 +33,8 @@ void testDistortion(
   std::function<uint64(const uint16*, const uint16*, int32                     )>AreaSSD,
   std::function<uint64(const uint16*, const uint16*, int32, int32, int32, int32)>StrideSSD)
 {
+  uint32 State = xTestUtils::c_XorShiftSeed;
+
   for(const int32 y : c_Dimms)
   {
     for(const int32 x : c_Dimms)
@@ -154,8 +157,9 @@ void testDistortion(
         CAPTURE(Description + " pseudo-random values");
         PL->fill(0);
         PU->fill(0);
-        xTestUtils::fillMidNoise(PL->getAddr(), PL->getStride(), PL->getWidth(), PL->getHeight(), PL->getBitDepth(), 0);
-        xTestUtils::fillMidNoise(PU->getAddr(), PU->getStride(), PU->getWidth(), PU->getHeight(), PU->getBitDepth(), 1);
+        uint32 OrgState = State;
+        State = xTestUtils::fillMidNoise(PL->getAddr(), PL->getStride(), PL->getWidth(), PL->getHeight(), PL->getBitDepth(), 0, OrgState);
+        State = xTestUtils::fillMidNoise(PU->getAddr(), PU->getStride(), PU->getWidth(), PU->getHeight(), PU->getBitDepth(), 1, OrgState);
         if(m == 0)
         {
           CHECK(AreaSD (PL->getAddr(), PU->getAddr(), PL->getArea()) == -Area);
@@ -171,8 +175,6 @@ void testDistortion(
         CHECK(StrideSAD(PU->getAddr(), PL->getAddr(), PU->getStride(), PL->getStride(), PU->getWidth(), PU->getHeight()) ==  Area);
         CHECK(StrideSSD(PL->getAddr(), PU->getAddr(), PL->getStride(), PU->getStride(), PL->getWidth(), PL->getHeight()) ==  Area);
         CHECK(StrideSSD(PU->getAddr(), PL->getAddr(), PU->getStride(), PL->getStride(), PU->getWidth(), PU->getHeight()) ==  Area);
-
-
 
         //gradient values
         CAPTURE(Description + " gradient values");

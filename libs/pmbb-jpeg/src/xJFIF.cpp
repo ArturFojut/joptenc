@@ -242,6 +242,74 @@ void xJFIF::xHuffTable::InitDefault(uint8 Idx, eHuffClass Class, eCmp Cmp)
     }
   }
 }
+void xJFIF::xHuffTable::InitCustom(uint8 Idx, eHuffClass Class, const uint8* LengthTable)
+{
+  m_Class = Class;
+  m_Idx   = Idx;
+
+  m_CodeSymbols.clear();
+
+  const int32 MaxSymbol = getMaxNumCodeSymbols();
+  std::array<byte, 32> TmpHuffLen = { 0 };
+  for(int32 i = 0; i <= MaxSymbol; i++)
+  {
+    int32 length = LengthTable[i];
+
+    if(length > 0 && length <= MaxSymbol)
+    {
+      TmpHuffLen[length - 1]++;
+    }
+  }
+
+  // Procedure for limiting code lengths to 16 bits
+  uint8 Index = 31;
+  while(Index > 15)
+  {
+    if(TmpHuffLen[Index] == 0) { Index--; continue; }
+    uint8 j = Index - 2;
+    while(j > 0 && TmpHuffLen[j] == 0) { j--; }
+    TmpHuffLen[Index    ] -= 2;
+    TmpHuffLen[Index - 1]++;
+    TmpHuffLen[j     + 1] += 2;
+    TmpHuffLen[j        ]--;
+  }
+  while(Index > 0 && TmpHuffLen[Index] == 0) { Index--; }
+
+  TmpHuffLen[Index]--;
+
+  for(int32 i = 0; i < 16; i++) { m_CodeLengths[i] = TmpHuffLen[i]; }
+
+  int32 NumLengths = 0;
+  for(int32 i = 0; i < (int32)m_CodeLengths.size(); i++) { NumLengths += m_CodeLengths[i]; }
+
+  std::vector<std::pair<uint16, uint16>> ValueIndexPairs(MaxSymbol);
+  for(int32 i = 0; i < MaxSymbol; i++) { ValueIndexPairs[i] = { LengthTable[i], (uint16)i }; }
+
+  std::sort(ValueIndexPairs.begin(), ValueIndexPairs.end(),
+    [](const std::pair<uint16_t, uint16>& a, const std::pair<uint16_t, uint16>& b)
+    {
+      if     (a.first == 0 && b.first != 0) { return false;             }
+      else if(a.first != 0 && b.first == 0) { return true ;             }
+      else                                  { return a.first < b.first; } //regular comparison for non-zero values
+    });
+
+  uint16 Count = 0;
+  for(const auto& pair : ValueIndexPairs)
+  {
+    if(Count >= NumLengths) { break; }
+    m_CodeSymbols.push_back(static_cast<byte>(pair.second));
+    ++Count;
+  }
+}
+xJFIF::tStr xJFIF::xHuffTable::Format(const tStr& Prefix) const
+{
+  std::string Result = fmt::format("{}Table Idx={:d} Class={:s}({:d})\n", Prefix, m_Idx, xHuffClass2Str(m_Class), (int32)m_Class);
+  Result += Prefix + "CodeLengths=";
+  for(int32 i = 0; i < xJPEG_Constants::c_NumCodeLenghts; i++) { Result += fmt::format("{:d} ", m_CodeLengths[i]); } Result += "\n";
+  Result += Prefix + "CodeSymbols=";
+  for(int32 i = 0; i < (int32)m_CodeSymbols.size(); i++) { Result += fmt::format("{:d} ", m_CodeSymbols[i]); } Result += "\n";
+  return Result;
+}
 bool xJFIF::xHuffTable::Validate() const
 {
   return true;
@@ -563,19 +631,96 @@ int64 xJFIF::SeekNextSegment(std::ifstream* Input, eMarker Marker)
   //}
   return NOT_VALID;
 }
+//void xJFIF::AddStuffingAVX512(xByteBuffer* Output, xByteBuffer* Input)
+//{
+//  const byte*    Src      = Input ->getReadPtr ();
+//  const int32    NumSrc   = Input ->getDataSize();
+//  const int32    NumSrc64 = (int32)((uint32)NumSrc & c_MultipleMask64<uint32>);
+//  byte* restrict Dst      = Output->getWritePtr();
+//
+//  const __m512i  FF = _mm512_set1_epi8(0xFF);
+//
+//  //for(int32 i = 0; i < NumSrc64; i+=64)
+//  //{
+//  //  __m512i SrcV = _mm512_loadu_si512(Src + i);
+//  //  uint64  Mask = _mm512_cmpeq_epi8_mask(SrcV, FF);
+//  //  if(!Mask) { _mm512_storeu_si512(Dst, SrcV); Dst += 64; }
+//  //  else
+//  //  {
+//  //    const byte* TmpSrc = Src + i;
+//  //    for(int32 j = 0; j < 64; j++)
+//  //    {
+//  //      *(Dst++) = TmpSrc[j];
+//  //      if(TmpSrc[j] == 0xFF) { *(Dst++) = 0x00; }
+//  //    }
+//  //  }
+//  //}
+//
+//  for(int32 i = 0; i < NumSrc64; i += 64)
+//  {
+//    __m512i SrcV = _mm512_loadu_si512(Src + i);
+//    uint64  Mask = _mm512_cmpeq_epi8_mask(SrcV, FF);
+//    _mm512_storeu_si512(Dst, SrcV);
+//    if(!Mask) { Dst += 64; }
+//    else
+//    {
+//      int32 FirstFF = _tzcnt_u32(Mask);
+//      const byte* TmpSrc = Src + i;
+//      Dst += FirstFF;
+//      for(int32 j = FirstFF; j < 64; j++)
+//      {
+//        *(Dst++) = TmpSrc[j];
+//        if(TmpSrc[j] == 0xFF) { *(Dst++) = 0x00; }
+//      }
+//    }
+//  }
+//
+//  //broken
+//  //for(int32 i = 0; i < NumSrc64; i += 64)
+//  //{
+//  //  __m512i SrcV   = _mm512_loadu_si512(Src + i);
+//  //  uint64  MaskFF = _mm512_cmpeq_epi8_mask(SrcV, FF);
+//  //  if(!MaskFF)
+//  //  { 
+//  //    _mm512_storeu_si512(Dst, SrcV);
+//  //    Dst += 64;
+//  //  }
+//  //  else
+//  //  {
+//  //    int32   NumFFs = _mm_popcnt_u32(MaskFF);
+//  //    __m512i DstV   = _mm512_maskz_expand_epi8((~(MaskFF<<1)), SrcV);
+//  //    const byte* TmpSrc = Src + i;
+//  //    for(int32 j = 64 - NumFFs; j < 64; j++)
+//  //    {
+//  //      *(Dst++) = TmpSrc[j];
+//  //      if(TmpSrc[j] == 0xFF)
+//  //      { 
+//  //        *(Dst++) = 0x00;
+//  //      }
+//  //    }
+//  //  }
+//  //}
+//
+//
+//  for(int32 i = NumSrc64; i < NumSrc; i++)
+//  {
+//    *(Dst++) = Src[i];
+//    if(Src[i] == 0xFF) { *(Dst++) = 0x00; }
+//  }
+//
+//  int32 OutputLength = (int32)(Dst - Output->getWritePtr());
+//  Output->modifyWritten(OutputLength);
+//}
 void xJFIF::AddStuffing(xByteBuffer* Output, xByteBuffer* Input)
 {
-  byte* Src     = Input->getReadPtr();
-  byte* LastSrc = Src + Input->getDataSize();
-  byte* Dst     = Output->getWritePtr();
+  const byte*    Src     = Input->getReadPtr();
+  const byte*    LastSrc = Src + Input->getDataSize();
+  byte* restrict Dst     = Output->getWritePtr();
 
   while(Src<LastSrc)
   {    
     *(Dst++) = *(Src++);   
-    if(*(Src - 1) == 0xFF)
-    {
-      *(Dst++) = 0x00;
-    }
+    if(*(Src - 1) == 0xFF) { *(Dst++) = 0x00; }
   }  
 
   int32 OutputLength = (int32)(Dst - Output->getWritePtr());
@@ -583,16 +728,16 @@ void xJFIF::AddStuffing(xByteBuffer* Output, xByteBuffer* Input)
 }
 void xJFIF::RemoveStuffing(xByteBuffer* Output, xByteBuffer* Input)
 {
-  byte* Src     = Input->getReadPtr();
-  byte* LastSrc = Src + Input->getDataSize();
-  byte* Dst     = Output->getWritePtr();
+  const byte*    Src     = Input->getReadPtr();
+  const byte*    LastSrc = Src + Input->getDataSize();
+  byte* restrict Dst     = Output->getWritePtr();
 
   while(Src<LastSrc)
   {    
     *(Dst++) = *(Src++);   
     if(*(Src - 1) == 0xFF)
     {
-      if(*Src == 0x00) { Src++; } //stuffing
+      if(*Src == 0x00) { Src++;               } //stuffing
       else             { Src--; Dst--; break; } //marker
     }
   }

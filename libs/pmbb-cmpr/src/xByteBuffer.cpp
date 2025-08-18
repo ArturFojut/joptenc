@@ -130,6 +130,17 @@ uint32 xByteBuffer::read(xStream* Stream, int32 Size)
   modifyWritten((uint32)NumBytesToRead);
   return (uint32)NumBytesToRead;
 }
+uint32 xByteBuffer::append(xStream* Stream, int32 Size)
+{
+  assert(Stream && Stream->isValid());
+  uint64 CurrPos        = Stream->tellR();
+  uint64 FileSize       = Stream->sizeR();
+  uint64 RemainingLen   = FileSize - CurrPos;
+  uint64 NumBytesToRead = xMin(RemainingLen, (uint64)Size);
+  Stream->read(getWritePtr(), (uint32)NumBytesToRead);
+  modifyWritten((uint32)NumBytesToRead);
+  return (uint32)NumBytesToRead;
+}
 
 //===============================================================================================================================================================================================================
 // xByteBufferRental
@@ -139,7 +150,7 @@ void xByteBufferRental::create(int32 BufferSize, uintSize InitSize)
   m_Mutex.lock();
   m_BufferSize   = BufferSize;   
   m_CreatedUnits = 0;
-  m_SizeLimit    = uintSize_max;
+  m_SizeLimit    = std::numeric_limits<uintSize>::max();
 
   for(uintSize i=0; i<InitSize; i++) { xCreateNewUnit(); }
   m_Mutex.unlock();

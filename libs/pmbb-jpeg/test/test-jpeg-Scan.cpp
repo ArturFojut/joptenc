@@ -10,6 +10,7 @@
 #include <array>
 #include <tuple>
 #include "xTestUtils.h"
+#include "xTimeUtils.h"
 #include "xMemory.h"
 #include "xCommonDefJPEG.h"
 #include "xJPEG_Scan.h"
@@ -24,8 +25,8 @@ constexpr int32 BA = xJPEG_Constants::c_BlockArea;
 
 void testScan(std::function <void(int16*, const int16*)>Scan, std::function <void(int16*, const int16*)>InvScan)
 {  
-  constexpr std::array<int16, BA> TmpSequence   = [] { std::array<int16, BA> R{}; for(size_t i = 0; i < R.size(); i++) { R[i] = (int16)i                        ; } return R; }();
-  constexpr std::array<int16, BA> TmpScanZigZag = [] { std::array<int16, BA> R{}; for(size_t i = 0; i < R.size(); i++) { R[i] = xJPEG_Constants::m_ScanZigZag[i]; } return R; }();
+  const std::array<int16, BA> TmpSequence   = [] { std::array<int16, BA> R{}; for(size_t i = 0; i < R.size(); i++) { R[i] = (int16)i                        ; } return R; }();
+  const std::array<int16, BA> TmpScanZigZag = [] { std::array<int16, BA> R{}; for(size_t i = 0; i < R.size(); i++) { R[i] = xJPEG_Constants::m_ScanZigZag[i]; } return R; }();
 
   std::array<int16, BA> Src = { 0 };
   std::array<int16, BA> Dst = { 0 };

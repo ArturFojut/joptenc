@@ -13,6 +13,7 @@
 #include <utility>
 #include <array>
 #include "xTestUtils.h"
+#include "xTimeUtils.h"
 #include "xMemory.h"
 #include "xCommonDefJPEG.h"
 #include "xJPEG_Quant.h"
