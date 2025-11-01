@@ -115,10 +115,15 @@ protected:
   void   xEstimateLambda(const xPicYUV* Picture);
 
   void   xOptQuantPic(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const xPicYUV* Picture);
+  void   xOptQuantPicDCT(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const int16* CoeffsTransOrgV[]);
   void   xOptQuantSlc(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const xPicYUV* Picture, int32 MCU_IdxFirst, int32 MCU_IdxLast);
+  void   xOptQuantSlcDCT(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const int16* CoeffsTransOrgV[], int32 MCU_IdxFirst, int32 MCU_IdxLast);
   void   xOptQuantMCU(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const uint16* CmpPtrV[], const int32 CmpStrideV[], int32 MCU_Idx);
+  void   xOptQuantMCUdct(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const int16* CoeffsTransOrgV[], int32 MCU_Idx);
   void   xOptQuantBLK(int16* OptCoeffScan, const int16* CoeffsScan, const uint16* SamplesOrg, eCmp CmpId, int32 LastDC);
+  void   xOptQuantBLKdct(int16* OptCoeffScan, const int16* CoeffsScan, const int16* CoeffsTransOrg, eCmp CmpId, int32 LastDC);
   uint64 xCalcDistBLK(const int16* ScanCoeffs, const uint16* SamplesOrg, int32 QuantTabId);
+  uint64 xCalcDistBLKdct(const int16* ScanCoeffs, const int16* CoeffsTransOrg, int32 QuantTabId);
 
   void   xOptHuffPic(const int16* CoeffsScanV[]);
   void   xCntPic(const int16* CoeffsScanV[]);

@@ -85,6 +85,7 @@ public:
   static inline  int64 CalcWeightedSD (const uint16* Tst, const uint16* Ref, const uint16* Mask, int32 TstStride, int32 RefStride, int32 MskStride, int32 Width, int32 Height) { return xDistortionSTD::CalcWeightedSD (Tst, Ref, Mask, TstStride, RefStride, MskStride, Width,  Height); }
   static inline uint64 CalcWeightedSSD(const uint16* Tst, const uint16* Ref, const uint16* Mask,                                                    int32 Area               ) { return xDistortionSTD::CalcWeightedSSD(Tst, Ref, Mask,                            Area          ); }
   static inline uint64 CalcWeightedSSD(const uint16* Tst, const uint16* Ref, const uint16* Mask, int32 TstStride, int32 RefStride, int32 MskStride, int32 Width, int32 Height) { return xDistortionSTD::CalcWeightedSSD(Tst, Ref, Mask, TstStride, RefStride, MskStride, Width,  Height); }
+  static inline uint64 CalcSSDdct(const int16* Tst, const int16* Ref, int32 TstStride, int32 RefStride, int32 Width, int32 Height) { return xDistortionSTD::CalcSSDdct(Tst, Ref, TstStride, RefStride, Width, Height); }
 
 };
 
