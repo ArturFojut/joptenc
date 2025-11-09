@@ -35,6 +35,7 @@ protected:
   bool    m_OptHuffTables     = false;
   int32   m_NumOptPassesBlock = 0;
   int32   m_NumOptPassesPic   = 0;
+  bool    m_UseDctSsd         = false;
 
   //lambdas
   flt64V4 m_Lambda            = { 1.0, 1.0, 1.0, 1.0 };
@@ -85,12 +86,14 @@ public:
   void setQuantOpt  (bool OptimizeLuma, bool OptimizeChroma, bool ProcessZeroCoeffs);
   void setHuffOpt   (bool OptimizeHuffmanTables);
   void setOptPass   (int32 NumBlockOptPasses, int32 NumPicOptPasses);
+  void setDctSsd    (bool UseDctSsd);
   
   void encode(const xPicYUV* InputPicture, xByteBuffer* OutputBuffer);
 
   //tDistBits calcDistBits(const xPicYUV* Picture); unused
 
   std::string formatAndResetStats(const std::string Prefix, flt64 TicksPerMiliSec);
+  std::string formatStatsFile(flt64 TicksPerMiliSec);
 
 protected:
   void    xEncodePicture  (xByteBuffer* Buffer, const xPicYUV* Picture);

@@ -76,6 +76,7 @@ usage::optimization ---------------------------------------------------------
  -hto  OptimizeHuffTab    Calculate optimized Huffman tables (default 1) [optional]
  -npb  NumOptPassesBlock  Number of optimization passes over one block (default 1) [optional]
  -npp  NumOptPassesPic    Number of optimization passes over one picture (default 1) [optional]
+ -uds  UseDctSsd          Use DCT-domain SSD metric during optimization (default 0) [optional]
 
 usage::valiation ------------------------------------------------------------
  -ipa  InvalidPelActn     Select action taken if invalid pixel value is detected 
@@ -142,6 +143,7 @@ void xAppJPEG::registerCmdParams()
   m_CfgParser.addCmdParm("hto", "OptimizeHuffTab"  , "", "OptimizeHuffTab"  );
   m_CfgParser.addCmdParm("npb", "NumOptPassesBlock", "", "NumOptPassesBlock");
   m_CfgParser.addCmdParm("npp", "NumOptPassesPic"  , "", "NumOptPassesPic"  );
+  m_CfgParser.addCmdParm("uds", "UseDctSsd"        , "", "UseDctSsd"        );
   //validation 
   m_CfgParser.addCmdParm("ipa", "InvalidPelActn"  , "", "InvalidPelActn"  );
   m_CfgParser.addCmdParm("nma", "NameMismatchActn", "", "NameMismatchActn");
@@ -228,6 +230,7 @@ bool xAppJPEG::readConfiguration()
   m_OptHuffTables     = m_CfgParser.getParam1stArg("OptHuffTables"    , 1);
   m_NumOptPassesBlock = m_CfgParser.getParam1stArg("NumOptPassesBlock", 1);
   m_NumOptPassesPic   = m_CfgParser.getParam1stArg("NumOptPassesPic"  , 1);
+  m_UseDctSsd         = m_CfgParser.getParam1stArg("UseDctSsd"        , 0);
   
   //validation --------------------------------------------------------------------------------------------------------
   std::string InvalidPelActnS   = m_CfgParser.getParam1stArg("InvalidPelActn"  , "STOP");
@@ -283,7 +286,8 @@ std::string xAppJPEG::formatConfiguration()
   Config += fmt::format("ProcessZeroCoeffs = {}\n", m_ProcessZeroCoeffs);
   Config += fmt::format("OptHuffTables     = {}\n", m_OptHuffTables    );
   Config += fmt::format("NumOptPassesBlock = {}\n", m_NumOptPassesBlock);
-  Config += fmt::format("NumOptPassesPic   = {}\n", m_NumOptPassesPic  );  
+  Config += fmt::format("NumOptPassesPic   = {}\n", m_NumOptPassesPic  ); 
+  Config += fmt::format("UseDctSsd         = {}\n", m_UseDctSsd        );
   //validation 
   Config += fmt::format("InvalidPelActn    = {}\n", xActn2Str(m_InvalidPelActn));
   Config += fmt::format("NameMismatchActn  = {}\n", xActn2Str(m_NameMismatchActn));
@@ -488,8 +492,9 @@ void xAppJPEG::createProcessors()
     m_EncoderRDOQ.initEntropy(m_RestartIntervalUsed);
     m_EncoderRDOQ.setMarkerEmit(true, true, true);
     m_EncoderRDOQ.setQuantOpt(m_OptQuantLuma, m_OptQuantChroma, m_ProcessZeroCoeffs);
-    m_EncoderRDOQ.setHuffOpt (m_OptHuffTables);
-    m_EncoderRDOQ.setOptPass (m_NumOptPassesBlock, m_NumOptPassesPic);
+    m_EncoderRDOQ.setHuffOpt(m_OptHuffTables);
+    m_EncoderRDOQ.setOptPass(m_NumOptPassesBlock, m_NumOptPassesPic);
+    m_EncoderRDOQ.setDctSsd(m_UseDctSsd);
     m_EncoderRDOQ.setGatherTimeStats(m_PrintDebug);
     if(m_Decode)
     {
@@ -859,7 +864,26 @@ std::string xAppJPEG::formatResultsStdOut()
   }
   return Result;
 }
+std::string xAppJPEG::formatResultsFile()
+{
+  std::string Result; Result.reserve(xMemory::c_MemSizePageBase);
 
+  Result += fmt::format("Quality = {}\n", m_Quality);
+  Result += fmt::format("Bitrate = {:.3f} kib/s\n", m_Bitrate / 1024);
+  Result += fmt::format("PSNR-Y = {:10.6f} dB\n", m_AvgPSNR_YUV[0]);
+  if (m_GatherTime) {
+    tDurationUS AvgDuration__Encode = tDurationMS((flt64)m_Ticks__Encode * m_InvDurationDenominator);
+    Result += fmt::format("AvgTime Encode = {:9.2f} us\n", AvgDuration__Encode.count());
+  }
+  if (m_PrintDebug) {
+    if (m_Implementation == eImpl::Advanded) {
+      Result += m_EncoderRDOQ.formatStatsFile(m_TimeStamp.getTicksPerMicroSec());
+    }
+  }
+  Result += fmt::format("UseDctSsd = {}\n", m_UseDctSsd);
+  
+  return Result;
+}
 //===============================================================================================================================================================================================================
 
 } //end of namespace PMBB::JPEG

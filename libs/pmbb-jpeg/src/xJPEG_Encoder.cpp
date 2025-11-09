@@ -158,6 +158,10 @@ void xAdvancedEncoder::setOptPass(int32 NumBlockOptPasses, int32 NumPicOptPasses
   m_NumOptPassesBlock = NumBlockOptPasses;
   m_NumOptPassesPic   = NumPicOptPasses  ;
 }
+void xAdvancedEncoder::setDctSsd(bool UseDctSsd)
+{
+  m_UseDctSsd = UseDctSsd;
+}
 void xAdvancedEncoder::encode(const xPicYUV* InputPicture, xByteBuffer* OutputBuffer)
 {
   xEncodePicture(OutputBuffer, InputPicture);
@@ -212,6 +216,19 @@ std::string xAdvancedEncoder::formatAndResetStats(const std::string Prefix, flt6
 
   return TimeStats;
 }
+std::string xAdvancedEncoder::formatStatsFile(flt64 TicksPerMicroSec)
+{
+  if (!m_GatherTimeStats) { return "Time stats gathering is disabled!"; }
+  if (m_TotalPictureIters == 0) { return "No time stats gathered!"; }
+
+  flt64 InvDenom = TicksPerMicroSec == 0.0 ? (flt64)1.0 / ((flt64)m_TotalPictureIters) : (flt64)1.0 / ((flt64)m_TotalPictureIters * TicksPerMicroSec);
+
+  std::string TimeStats; TimeStats.reserve(xMemory::c_MemSizePageBase);
+
+  TimeStats += fmt::format("OptQuant = {:.2f}\n", m_Ticks__OptQuant * InvDenom);
+
+  return TimeStats;
+}
 
 //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -247,8 +264,14 @@ void xAdvancedEncoder::xEncodePicture(xByteBuffer* OutputBuffer, const xPicYUV* 
   {
     uint64 TPo0 = m_GatherTimeStats ? xTSC() : 0;
 
-    //if(m_UseRDOQ) { xOptQuantPic(m_CmpCoeffsScanOpt, ConstCmpCoeffsScan, Picture); }
-    if (m_UseRDOQ) { xOptQuantPicDCT(m_CmpCoeffsScanOpt, ConstCmpCoeffsScan, ConstCmpCoeffsTransOrg); }
+    if (m_UseRDOQ) {
+      if (m_UseDctSsd) {
+        xOptQuantPicDCT(m_CmpCoeffsScanOpt, ConstCmpCoeffsScan, ConstCmpCoeffsTransOrg);
+      }
+      else {
+        xOptQuantPic(m_CmpCoeffsScanOpt, ConstCmpCoeffsScan, Picture);
+      }
+    }
 
     uint64 TPo1 = m_GatherTimeStats ? xTSC() : 0;
 

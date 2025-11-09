@@ -93,6 +93,17 @@ int32 APP_MAIN(int argc, char* argv[], char* /*envp*/[])
   AppJPEG.ceaseSeqAndBuffs   ();
   AppJPEG.ceaseMultithreading();
 
+  //save results to file
+  std::ofstream file("output.txt", std::ios::app);
+
+  if (file.is_open()) {
+    std::string results = AppJPEG.formatResultsFile();
+
+    file << results;
+    file.close();
+  }
+
+
   //printout results
   fmt::print("{}\n", AppJPEG.formatResultsStdOut());
   tTimePoint AppEnd = tClock::now();

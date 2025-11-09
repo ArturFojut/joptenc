@@ -53,6 +53,7 @@ public:
   int32       m_OptHuffTables    ;
   int32       m_NumOptPassesBlock;
   int32       m_NumOptPassesPic  ;
+  int32       m_UseDctSsd        ;
   //validation 
   eActn       m_InvalidPelActn  ;
   eActn       m_NameMismatchActn;
@@ -161,6 +162,7 @@ public:
   void        combineFrameStats ();
 
   std::string formatResultsStdOut();
+  std::string formatResultsFile();
 
 
 public:
