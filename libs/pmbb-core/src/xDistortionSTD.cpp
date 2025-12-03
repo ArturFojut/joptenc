@@ -70,15 +70,15 @@ uint64 xDistortionSTD::CalcSSDdct(const int16* restrict Tst, const int16* restri
       int32 TstCoeff = Tst[x];
       int32 RefCoeff = Ref[x];
 
-      // scale (divide by 16, rounding + signed truncation)
-      int32 TstCoeffScaled = (TstCoeff + 8 + (TstCoeff >> 31)) >> 4;
-
-      SSD += (uint64)xPow2(TstCoeffScaled - RefCoeff);
+      SSD += (uint64)xPow2(TstCoeff - (RefCoeff << 4)) >> 8;
+      //SSD += (uint64)xPow2(TstCoeff - (RefCoeff << 4));
     }
     Tst += TstStride;
     Ref += RefStride;
   }
+  //return (SSD + 128) >> 8;
   return SSD;
+  //return SSD >> 8;
 }
 int64 xDistortionSTD::CalcWeightedSD(const uint16* restrict Tst, const uint16* restrict Ref, const uint16* restrict Msk, int32 Area)
 {
