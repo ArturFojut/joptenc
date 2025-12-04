@@ -74,9 +74,11 @@ usage::optimization ---------------------------------------------------------
  -roc  OptQuantChroma     Apply RDOQ to chroma blocks (default 1) [optional]
  -rpz  ProcessZeroCoeffs  Try optimize coeffs initially quantized to 0 (default 0) [optional]
  -hto  OptimizeHuffTab    Calculate optimized Huffman tables (default 1) [optional]
- -npb  NumOptPassesBlock  Number of optimization passes over one block (default 1) [optional]
+ -npb  NumOptPassesBlock  Number of optimization passes over one block 
+                          (in -gmp mode: greedy rounds per block) (default 1) [optional]
  -npp  NumOptPassesPic    Number of optimization passes over one picture (default 1) [optional]
  -uds  UseDctSsd          Use DCT-domain SSD metric during optimization (default 0) [optional]
+ -gmp  GreedyMultiPass    Use greedy multi-pass RDOQ (default 0) [optional]
 
 usage::valiation ------------------------------------------------------------
  -ipa  InvalidPelActn     Select action taken if invalid pixel value is detected 
@@ -144,6 +146,7 @@ void xAppJPEG::registerCmdParams()
   m_CfgParser.addCmdParm("npb", "NumOptPassesBlock", "", "NumOptPassesBlock");
   m_CfgParser.addCmdParm("npp", "NumOptPassesPic"  , "", "NumOptPassesPic"  );
   m_CfgParser.addCmdParm("uds", "UseDctSsd"        , "", "UseDctSsd"        );
+  m_CfgParser.addCmdParm("gmp", "GreedyMultiPass"  , "", "GreedyMultiPass"  );
   //validation 
   m_CfgParser.addCmdParm("ipa", "InvalidPelActn"  , "", "InvalidPelActn"  );
   m_CfgParser.addCmdParm("nma", "NameMismatchActn", "", "NameMismatchActn");
@@ -231,6 +234,7 @@ bool xAppJPEG::readConfiguration()
   m_NumOptPassesBlock = m_CfgParser.getParam1stArg("NumOptPassesBlock", 1);
   m_NumOptPassesPic   = m_CfgParser.getParam1stArg("NumOptPassesPic"  , 1);
   m_UseDctSsd         = m_CfgParser.getParam1stArg("UseDctSsd"        , 0);
+  m_GreedyMultiPass   = m_CfgParser.getParam1stArg("GreedyMultiPass"  , 0);
   
   //validation --------------------------------------------------------------------------------------------------------
   std::string InvalidPelActnS   = m_CfgParser.getParam1stArg("InvalidPelActn"  , "STOP");
@@ -287,7 +291,8 @@ std::string xAppJPEG::formatConfiguration()
   Config += fmt::format("OptHuffTables     = {}\n", m_OptHuffTables    );
   Config += fmt::format("NumOptPassesBlock = {}\n", m_NumOptPassesBlock);
   Config += fmt::format("NumOptPassesPic   = {}\n", m_NumOptPassesPic  ); 
-  Config += fmt::format("UseDctSsd         = {}\n", m_UseDctSsd        );
+  Config += fmt::format("UseDctSsd         = {}\n", m_UseDctSsd        ); 
+  Config += fmt::format("GreedyMultiPass   = {}\n", m_GreedyMultiPass  );
   //validation 
   Config += fmt::format("InvalidPelActn    = {}\n", xActn2Str(m_InvalidPelActn));
   Config += fmt::format("NameMismatchActn  = {}\n", xActn2Str(m_NameMismatchActn));
@@ -495,6 +500,7 @@ void xAppJPEG::createProcessors()
     m_EncoderRDOQ.setHuffOpt(m_OptHuffTables);
     m_EncoderRDOQ.setOptPass(m_NumOptPassesBlock, m_NumOptPassesPic);
     m_EncoderRDOQ.setDctSsd(m_UseDctSsd);
+    m_EncoderRDOQ.setGreedyMultiPass(m_GreedyMultiPass);
     m_EncoderRDOQ.setGatherTimeStats(m_PrintDebug);
     if(m_Decode)
     {

@@ -162,6 +162,10 @@ void xAdvancedEncoder::setDctSsd(bool UseDctSsd)
 {
   m_UseDctSsd = UseDctSsd;
 }
+void xAdvancedEncoder::setGreedyMultiPass(bool GreedyMultiPass)
+{
+  m_GreedyMultiPass = GreedyMultiPass;
+}
 void xAdvancedEncoder::encode(const xPicYUV* InputPicture, xByteBuffer* OutputBuffer)
 {
   xEncodePicture(OutputBuffer, InputPicture);
@@ -769,7 +773,10 @@ void xAdvancedEncoder::xOptQuantMCU(int16* OptCoeffsScanV[], const int16* Coeffs
           const int32 CoeffOffset = BlockIdx << c_L2BA;
           const bool  FirstInSlc  = BlockIdx == 0 || (m_RestartInterval > 0 && MCU_Idx % m_RestartInterval == 0);
           const int32 LastDC      = FirstInSlc ? 0 : CoeffsScanV[CmpIdx][CoeffOffset - c_BA];
-          xOptQuantBLK(OptCoeffsScanV[CmpIdx] + CoeffOffset, CoeffsScanV[CmpIdx] + CoeffOffset, SamplesOrg, eCmp(CmpIdx), LastDC);
+          if (m_GreedyMultiPass)
+            xOptQuantBLKGreedyMP(OptCoeffsScanV[CmpIdx] + CoeffOffset, CoeffsScanV[CmpIdx] + CoeffOffset, SamplesOrg, eCmp(CmpIdx), LastDC);
+          else
+            xOptQuantBLK(OptCoeffsScanV[CmpIdx] + CoeffOffset, CoeffsScanV[CmpIdx] + CoeffOffset, SamplesOrg, eCmp(CmpIdx), LastDC);
           BlockIdx++;
         }
       }
@@ -831,7 +838,7 @@ void xAdvancedEncoder::xOptQuantBLK(int16* OptCoeffScan, const int16* CoeffsScan
         TmpCoeffsScan[i] = 0;
         int32  CurrBits = OrgBitsDC + m_EntropyEst.EstimateBlockAC(TmpCoeffsScan, HuffTabIdAC);
         uint64 CurrDist = xCalcDistBLK(TmpCoeffsScan, SamplesOrg, QuantTabId);
-        flt64  CurrCost = (double)CurrDist + Lambda * (flt64)CurrBits;
+        flt64  CurrCost = (flt64)CurrDist + Lambda * (flt64)CurrBits;
         if (CurrCost < BestCost)
         {
           BestBits  = CurrBits;
@@ -877,6 +884,109 @@ void xAdvancedEncoder::xOptQuantBLK(int16* OptCoeffScan, const int16* CoeffsScan
   //int32 TestBits = m_EntropyEst.EstimateBlock(TmpCoeffsScan, CmpId, HuffTabIdDC, HuffTabIdAC);
   memcpy(OptCoeffScan, TmpCoeffsScan, c_BA * sizeof(int16));
 }
+void xAdvancedEncoder::xOptQuantBLKGreedyMP(int16* OptCoeffScan, const int16* CoeffsScan, const uint16* SamplesOrg, eCmp CmpId, int32 LastDC)
+{
+  const int32 QuantTabId = m_SOF0.getQuantTableId(CmpId);
+  const int32 HuffTabIdDC = m_SOS.getHuffTableIdDC(CmpId);
+  const int32 HuffTabIdAC = m_SOS.getHuffTableIdAC(CmpId);
+  const flt64 Lambda = m_Lambda[(int32)CmpId];
+
+  int32 LastNonZero = xEntropyCommon::findLastNonZero(CoeffsScan);
+  if (LastNonZero == 0) { memcpy(OptCoeffScan, CoeffsScan, c_BA * sizeof(int16)); return; } //only DC - nothing to do here
+
+  const int32 OrgBitsDC = m_EntropyEst.EstimateBlockDC(CoeffsScan, LastDC, HuffTabIdDC);
+  const int32 OrgBitsAC = m_EntropyEst.EstimateBlockAC(CoeffsScan, HuffTabIdAC);
+
+  int32  BestBits = OrgBitsDC + OrgBitsAC;
+  uint64 BestDist = xCalcDistBLK(CoeffsScan, SamplesOrg, QuantTabId);
+  flt64  BestCost = (flt64)BestDist + Lambda * (flt64)BestBits;
+
+  int16 TmpCoeffsScan[c_BA];
+  memcpy(TmpCoeffsScan, CoeffsScan, c_BA * sizeof(int16));
+
+  for (int32 PassIdx = 0; PassIdx < m_NumOptPassesBlock; PassIdx++)
+  {
+    int16 RoundBestIdx = -1;
+    int16 RoundBestCoeff = 0;
+    flt64 RoundBestCost = BestCost;
+
+    for (int32 i = LastNonZero; i >= 1; i--)
+    {
+      const int16 OrgCoeff = TmpCoeffsScan[i];
+      if (!m_ProcessZeroCoeffs && OrgCoeff == 0) { continue; }
+
+      const int16 backup = TmpCoeffsScan[i];
+
+      //try zero
+      if (OrgCoeff != 0)
+      {
+        TmpCoeffsScan[i] = 0;
+        int32  CurrBits = OrgBitsDC + m_EntropyEst.EstimateBlockAC(TmpCoeffsScan, HuffTabIdAC);
+        uint64 CurrDist = xCalcDistBLK(TmpCoeffsScan, SamplesOrg, QuantTabId);
+        flt64  CurrCost = (flt64)CurrDist + Lambda * (flt64)CurrBits;
+
+        if (CurrCost < RoundBestCost)
+        {
+          RoundBestCost = CurrCost;
+          RoundBestIdx = i;
+          RoundBestCoeff = 0;
+        }
+      }
+
+      //try +1
+      if (OrgCoeff != -1)
+      {
+        TmpCoeffsScan[i] = OrgCoeff + 1;
+        int32  CurrBits = OrgBitsDC + m_EntropyEst.EstimateBlockAC(TmpCoeffsScan, HuffTabIdAC);
+        uint64 CurrDist = xCalcDistBLK(TmpCoeffsScan, SamplesOrg, QuantTabId);
+        flt64  CurrCost = (flt64)CurrDist + Lambda * (flt64)CurrBits;
+
+        if (CurrCost < RoundBestCost)
+        {
+          RoundBestCost = CurrCost;
+          RoundBestIdx = i;
+          RoundBestCoeff = OrgCoeff + 1;
+        }
+      }
+
+      //try -1  
+      if (OrgCoeff != 1)
+      {
+        TmpCoeffsScan[i] = OrgCoeff - 1;
+        int32  CurrBits = OrgBitsDC + m_EntropyEst.EstimateBlockAC(TmpCoeffsScan, HuffTabIdAC);
+        uint64 CurrDist = xCalcDistBLK(TmpCoeffsScan, SamplesOrg, QuantTabId);
+        flt64  CurrCost = (flt64)CurrDist + Lambda * (flt64)CurrBits;
+
+        if (CurrCost < RoundBestCost)
+        {
+          RoundBestCost = CurrCost;
+          RoundBestIdx = i;
+          RoundBestCoeff = OrgCoeff - 1;
+        }
+      }
+
+      TmpCoeffsScan[i] = backup;
+    }
+
+    if (RoundBestIdx < 0)
+    {
+      //printf("[GMP] No better change found -> stopping at pass %d\n", PassIdx);
+      break;
+    }
+
+    TmpCoeffsScan[RoundBestIdx] = RoundBestCoeff;
+    BestCost = RoundBestCost;
+
+
+    LastNonZero = xEntropyCommon::findLastNonZero(TmpCoeffsScan);
+    if (LastNonZero == 0)
+      break;
+
+  }
+
+  //int32 TestBits = m_EntropyEst.EstimateBlock(TmpCoeffsScan, CmpId, HuffTabIdDC, HuffTabIdAC);
+  memcpy(OptCoeffScan, TmpCoeffsScan, c_BA * sizeof(int16));
+}
 void xAdvancedEncoder::xOptQuantBLKdct(int16* OptCoeffScan, const int16* CoeffsScan, const int16* CoeffsTransOrg, eCmp CmpId, int32 LastDC)
 {
   const int32 QuantTabId = m_SOF0.getQuantTableId(CmpId);
@@ -911,7 +1021,7 @@ void xAdvancedEncoder::xOptQuantBLKdct(int16* OptCoeffScan, const int16* CoeffsS
         TmpCoeffsScan[i] = 0;
         int32  CurrBits = OrgBitsDC + m_EntropyEst.EstimateBlockAC(TmpCoeffsScan, HuffTabIdAC);
         uint64 CurrDist = xCalcDistBLKdct(TmpCoeffsScan, CoeffsTransOrg, QuantTabId);
-        flt64  CurrCost = (double)CurrDist + Lambda * (flt64)CurrBits;
+        flt64  CurrCost = (flt64)CurrDist + Lambda * (flt64)CurrBits;
         if (CurrCost < BestCost)
         {
           BestBits = CurrBits;

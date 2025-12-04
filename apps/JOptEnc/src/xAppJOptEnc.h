@@ -54,6 +54,7 @@ public:
   int32       m_NumOptPassesBlock;
   int32       m_NumOptPassesPic  ;
   int32       m_UseDctSsd        ;
+  int32       m_GreedyMultiPass;
   //validation 
   eActn       m_InvalidPelActn  ;
   eActn       m_NameMismatchActn;
