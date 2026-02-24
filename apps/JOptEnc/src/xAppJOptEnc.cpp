@@ -79,6 +79,9 @@ usage::optimization ---------------------------------------------------------
  -npp  NumOptPassesPic    Number of optimization passes over one picture (default 1) [optional]
  -uds  UseDctSsd          Use DCT-domain SSD metric during optimization (default 0) [optional]
  -gmp  GreedyMultiPass    Use greedy multi-pass RDOQ (default 0) [optional]
+ -bms  BeamSearch         Use beam-search RDOQ (default 0) [optional]
+ -bmw  BeamWidth          Number of states kept per step (default 3) [optional]
+ -bst  BeamSteps          Number of search steps (default 1) [optional]
 
 usage::valiation ------------------------------------------------------------
  -ipa  InvalidPelActn     Select action taken if invalid pixel value is detected 
@@ -147,6 +150,10 @@ void xAppJPEG::registerCmdParams()
   m_CfgParser.addCmdParm("npp", "NumOptPassesPic"  , "", "NumOptPassesPic"  );
   m_CfgParser.addCmdParm("uds", "UseDctSsd"        , "", "UseDctSsd"        );
   m_CfgParser.addCmdParm("gmp", "GreedyMultiPass"  , "", "GreedyMultiPass"  );
+  //beam search RDOQ
+  m_CfgParser.addCmdParm("bms", "BeamSearch"       , "", "BeamSearch");
+  m_CfgParser.addCmdParm("bmw", "BeamWidth"        , "", "BeamWidth" );
+  m_CfgParser.addCmdParm("bst", "BeamSteps"        , "", "BeamSteps" );
   //validation 
   m_CfgParser.addCmdParm("ipa", "InvalidPelActn"  , "", "InvalidPelActn"  );
   m_CfgParser.addCmdParm("nma", "NameMismatchActn", "", "NameMismatchActn");
@@ -230,11 +237,15 @@ bool xAppJPEG::readConfiguration()
   m_OptQuantLuma      = m_CfgParser.getParam1stArg("OptQuantLuma"     , 1);
   m_OptQuantChroma    = m_CfgParser.getParam1stArg("OptQuantChroma"   , 1);
   m_ProcessZeroCoeffs = m_CfgParser.getParam1stArg("ProcessZeroCoeffs", 0);
-  m_OptHuffTables     = m_CfgParser.getParam1stArg("OptHuffTables"    , 1);
+  m_OptHuffTables     = m_CfgParser.getParam1stArg("OptimizeHuffTab",   1);
   m_NumOptPassesBlock = m_CfgParser.getParam1stArg("NumOptPassesBlock", 1);
   m_NumOptPassesPic   = m_CfgParser.getParam1stArg("NumOptPassesPic"  , 1);
   m_UseDctSsd         = m_CfgParser.getParam1stArg("UseDctSsd"        , 0);
   m_GreedyMultiPass   = m_CfgParser.getParam1stArg("GreedyMultiPass"  , 0);
+  //beam search RDOQ
+  m_BeamSearch = m_CfgParser.getParam1stArg("BeamSearch", 0);
+  m_BeamWidth  = m_CfgParser.getParam1stArg("BeamWidth",  3);
+  m_BeamSteps  = m_CfgParser.getParam1stArg("BeamSteps",  1);
   
   //validation --------------------------------------------------------------------------------------------------------
   std::string InvalidPelActnS   = m_CfgParser.getParam1stArg("InvalidPelActn"  , "STOP");
@@ -293,6 +304,10 @@ std::string xAppJPEG::formatConfiguration()
   Config += fmt::format("NumOptPassesPic   = {}\n", m_NumOptPassesPic  ); 
   Config += fmt::format("UseDctSsd         = {}\n", m_UseDctSsd        ); 
   Config += fmt::format("GreedyMultiPass   = {}\n", m_GreedyMultiPass  );
+  //beam search RDOQ
+  Config += fmt::format("BeamSearch        = {}\n", m_BeamSearch);
+  Config += fmt::format("BeamWidth         = {}\n", m_BeamWidth);
+  Config += fmt::format("BeamSteps         = {}\n", m_BeamSteps);
   //validation 
   Config += fmt::format("InvalidPelActn    = {}\n", xActn2Str(m_InvalidPelActn));
   Config += fmt::format("NameMismatchActn  = {}\n", xActn2Str(m_NameMismatchActn));
@@ -501,6 +516,7 @@ void xAppJPEG::createProcessors()
     m_EncoderRDOQ.setOptPass(m_NumOptPassesBlock, m_NumOptPassesPic);
     m_EncoderRDOQ.setDctSsd(m_UseDctSsd);
     m_EncoderRDOQ.setGreedyMultiPass(m_GreedyMultiPass);
+    m_EncoderRDOQ.setBeamSearch(m_BeamSearch, m_BeamWidth, m_BeamSteps);
     m_EncoderRDOQ.setGatherTimeStats(m_PrintDebug);
     if(m_Decode)
     {

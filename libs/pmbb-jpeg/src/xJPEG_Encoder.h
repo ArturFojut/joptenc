@@ -37,6 +37,12 @@ protected:
   int32   m_NumOptPassesPic   = 0;
   bool    m_UseDctSsd         = false; 
   bool    m_GreedyMultiPass   = false;
+  //beam search RDOQ
+  static constexpr int32 c_MAX_BEAM_WIDTH = 16;
+  bool  m_BeamSearch = false;
+  int32 m_BeamWidth = 3;   // K
+  int32 m_BeamSteps = 0;   // T
+
 
   //lambdas
   flt64V4 m_Lambda            = { 1.0, 1.0, 1.0, 1.0 };
@@ -89,6 +95,8 @@ public:
   void setOptPass   (int32 NumBlockOptPasses, int32 NumPicOptPasses);
   void setDctSsd    (bool UseDctSsd);
   void setGreedyMultiPass(bool GreedyMultiPass);
+  void setBeamSearch(bool BeamSearch, int32 BeamWidth, int32 BeamSteps);
+
 
   void encode(const xPicYUV* InputPicture, xByteBuffer* OutputBuffer);
 
@@ -127,6 +135,7 @@ protected:
   void   xOptQuantMCUdct(int16* OptCoeffsScanV[], const int16* CoeffsScanV[], const int16* CoeffsTransOrgV[], int32 MCU_Idx);
   void   xOptQuantBLK(int16* OptCoeffScan, const int16* CoeffsScan, const uint16* SamplesOrg, eCmp CmpId, int32 LastDC);
   void   xOptQuantBLKGreedyMP(int16* OptCoeffScan, const int16* CoeffsScan, const uint16* SamplesOrg, eCmp CmpId, int32 LastDC);
+  void   xOptQuantBLKBeam(int16* OptCoeffScan, const int16* CoeffsScan, const uint16* SamplesOrg, eCmp CmpId, int32 LastDC);
   void   xOptQuantBLKdct(int16* OptCoeffScan, const int16* CoeffsScan, const int16* CoeffsTransOrg, eCmp CmpId, int32 LastDC);
   uint64 xCalcDistBLK(const int16* ScanCoeffs, const uint16* SamplesOrg, int32 QuantTabId);
   uint64 xCalcDistBLKdct(const int16* ScanCoeffs, const int16* CoeffsTransOrg, int32 QuantTabId);

@@ -166,6 +166,11 @@ void xAdvancedEncoder::setGreedyMultiPass(bool GreedyMultiPass)
 {
   m_GreedyMultiPass = GreedyMultiPass;
 }
+void xAdvancedEncoder::setBeamSearch(bool BeamSearch, int32 BeamWidth, int32 BeamSteps) {
+  m_BeamSearch = BeamSearch;
+  m_BeamSteps = BeamSteps;
+  m_BeamWidth = std::max(1, std::min(BeamWidth, c_MAX_BEAM_WIDTH));
+}
 void xAdvancedEncoder::encode(const xPicYUV* InputPicture, xByteBuffer* OutputBuffer)
 {
   xEncodePicture(OutputBuffer, InputPicture);
@@ -773,7 +778,9 @@ void xAdvancedEncoder::xOptQuantMCU(int16* OptCoeffsScanV[], const int16* Coeffs
           const int32 CoeffOffset = BlockIdx << c_L2BA;
           const bool  FirstInSlc  = BlockIdx == 0 || (m_RestartInterval > 0 && MCU_Idx % m_RestartInterval == 0);
           const int32 LastDC      = FirstInSlc ? 0 : CoeffsScanV[CmpIdx][CoeffOffset - c_BA];
-          if (m_GreedyMultiPass)
+          if (m_BeamSearch)
+            xOptQuantBLKBeam(OptCoeffsScanV[CmpIdx] + CoeffOffset, CoeffsScanV[CmpIdx] + CoeffOffset, SamplesOrg, eCmp(CmpIdx), LastDC);
+          else if (m_GreedyMultiPass)
             xOptQuantBLKGreedyMP(OptCoeffsScanV[CmpIdx] + CoeffOffset, CoeffsScanV[CmpIdx] + CoeffOffset, SamplesOrg, eCmp(CmpIdx), LastDC);
           else
             xOptQuantBLK(OptCoeffsScanV[CmpIdx] + CoeffOffset, CoeffsScanV[CmpIdx] + CoeffOffset, SamplesOrg, eCmp(CmpIdx), LastDC);
@@ -978,14 +985,129 @@ void xAdvancedEncoder::xOptQuantBLKGreedyMP(int16* OptCoeffScan, const int16* Co
     BestCost = RoundBestCost;
 
 
-    LastNonZero = xEntropyCommon::findLastNonZero(TmpCoeffsScan);
-    if (LastNonZero == 0)
-      break;
+    //if (RoundBestIdx == LastNonZero && RoundBestCoeff == 0)
+    //{
+    //  LastNonZero = xEntropyCommon::findLastNonZero(TmpCoeffsScan);
+    //  if (LastNonZero == 0) break;
+    //}
 
   }
 
   //int32 TestBits = m_EntropyEst.EstimateBlock(TmpCoeffsScan, CmpId, HuffTabIdDC, HuffTabIdAC);
   memcpy(OptCoeffScan, TmpCoeffsScan, c_BA * sizeof(int16));
+}
+void xAdvancedEncoder::xOptQuantBLKBeam(int16* OptCoeffScan, const int16* CoeffsScan, const uint16* SamplesOrg, eCmp CmpId, int32 LastDC)
+{
+  const int32 QuantTabId = m_SOF0.getQuantTableId(CmpId);
+  const int32 HuffTabIdDC = m_SOS.getHuffTableIdDC(CmpId);
+  const int32 HuffTabIdAC = m_SOS.getHuffTableIdAC(CmpId);
+  const flt64 Lambda = m_Lambda[(int32)CmpId];
+
+  int32 LastNonZero = xEntropyCommon::findLastNonZero(CoeffsScan);
+  if (LastNonZero == 0) { memcpy(OptCoeffScan, CoeffsScan, c_BA * sizeof(int16)); return; }
+
+  const int32 OrgBitsDC = m_EntropyEst.EstimateBlockDC(CoeffsScan, LastDC, HuffTabIdDC);
+
+  const int32 NumStates = m_BeamWidth;
+  const int32 NumSteps = m_BeamSteps;
+
+  struct xStateRDOQ { int16 coeffs[c_BA]; flt64 cost; };
+
+  std::vector<xStateRDOQ> Beam;
+  Beam.reserve(NumStates);
+
+  xStateRDOQ s0;
+  memcpy(s0.coeffs, CoeffsScan, c_BA * sizeof(int16));
+
+  const int32 BitsAC0 = m_EntropyEst.EstimateBlockAC(s0.coeffs, HuffTabIdAC);
+  const int32 Bits0 = OrgBitsDC + BitsAC0;
+  const uint64 Dist0 = xCalcDistBLK(s0.coeffs, SamplesOrg, QuantTabId);
+  s0.cost = (flt64)Dist0 + Lambda * (flt64)Bits0;
+  Beam.push_back(s0);
+
+  struct xLocalCandidate { flt64 cost; int32 idx; int16 val; };
+
+  for (int32 step = 0; step < NumSteps; step++)
+  {
+    std::vector<xStateRDOQ> Candidates;
+    Candidates.reserve((int32)Beam.size() * NumStates);
+
+    for (const xStateRDOQ& currState : Beam)
+    {
+      xLocalCandidate LocalCandidates[c_MAX_BEAM_WIDTH];
+      int32 numLocal = 0;
+
+      int16 tmp[c_BA];
+      memcpy(tmp, currState.coeffs, c_BA * sizeof(int16));
+
+      auto EvaluateCoeffChange = [&](int32 idx, int16 val)
+        {
+          const int16 backup = tmp[idx];
+          tmp[idx] = val;
+
+          const int32 BitsAC = m_EntropyEst.EstimateBlockAC(tmp, HuffTabIdAC);
+          const int32 Bits = OrgBitsDC + BitsAC;
+          const uint64 Dist = xCalcDistBLK(tmp, SamplesOrg, QuantTabId);
+          const flt64 c = (flt64)Dist + Lambda * (flt64)Bits;
+
+          tmp[idx] = backup;
+
+          if (numLocal < NumStates)
+          {
+            LocalCandidates[numLocal++] = { c, idx, val };
+          }
+          else
+          {
+            int32 worst = 0;
+            for (int32 t = 1; t < NumStates; t++) {
+              if (LocalCandidates[t].cost > LocalCandidates[worst].cost) worst = t;
+            }
+            if (c < LocalCandidates[worst].cost) LocalCandidates[worst] = { c, idx, val };
+          }
+        };
+
+      for (int32 i = LastNonZero; i >= 1; i--)
+      {
+        const int16 v = currState.coeffs[i];
+        if (!m_ProcessZeroCoeffs && v == 0) continue;
+
+        // 0
+        if (v != 0)  EvaluateCoeffChange(i, 0);
+        // +1
+        if (v != -1) EvaluateCoeffChange(i, (int16)(v + 1));
+        // -1
+        if (v != 1)  EvaluateCoeffChange(i, (int16)(v - 1));
+      }
+
+      for (int32 t = 0; t < numLocal; t++)
+      {
+        xStateRDOQ nxt = currState;
+        const int32 idx = LocalCandidates[t].idx;
+        nxt.coeffs[idx] = LocalCandidates[t].val;
+        nxt.cost = LocalCandidates[t].cost;
+        Candidates.push_back(nxt);
+      }
+    }
+
+    if (Candidates.empty()) break;
+
+    const int32 keep = std::min<int32>(NumStates, (int32)Candidates.size());
+    std::nth_element(
+      Candidates.begin(),
+      Candidates.begin() + (keep - 1),
+      Candidates.end(),
+      [](const xStateRDOQ& a, const xStateRDOQ& b) { return a.cost < b.cost; });
+
+    Candidates.resize(keep);
+    std::sort(Candidates.begin(), Candidates.end(),
+      [](const xStateRDOQ& a, const xStateRDOQ& b) { return a.cost < b.cost; });
+
+    if (Candidates[0].cost >= Beam[0].cost) break;
+
+    Beam.swap(Candidates);
+  }
+
+  memcpy(OptCoeffScan, Beam[0].coeffs, c_BA * sizeof(int16));
 }
 void xAdvancedEncoder::xOptQuantBLKdct(int16* OptCoeffScan, const int16* CoeffsScan, const int16* CoeffsTransOrg, eCmp CmpId, int32 LastDC)
 {

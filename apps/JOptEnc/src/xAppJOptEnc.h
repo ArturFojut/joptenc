@@ -55,6 +55,10 @@ public:
   int32       m_NumOptPassesPic  ;
   int32       m_UseDctSsd        ;
   int32       m_GreedyMultiPass;
+  //beam search RDOQ
+  int32       m_BeamSearch;
+  int32       m_BeamWidth;
+  int32       m_BeamSteps;
   //validation 
   eActn       m_InvalidPelActn  ;
   eActn       m_NameMismatchActn;
