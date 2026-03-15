@@ -886,26 +886,79 @@ std::string xAppJPEG::formatResultsStdOut()
   }
   return Result;
 }
-std::string xAppJPEG::formatResultsFile()
-{
-  std::string Result; Result.reserve(xMemory::c_MemSizePageBase);
-
-  Result += fmt::format("Quality = {}\n", m_Quality);
-  Result += fmt::format("Bitrate = {:.3f} kib/s\n", m_Bitrate / 1024);
-  Result += fmt::format("PSNR-Y = {:10.6f} dB\n", m_AvgPSNR_YUV[0]);
-  if (m_GatherTime) {
-    tDurationUS AvgDuration__Encode = tDurationMS((flt64)m_Ticks__Encode * m_InvDurationDenominator);
-    Result += fmt::format("AvgTime Encode = {:9.2f} us\n", AvgDuration__Encode.count());
-  }
-  if (m_PrintDebug) {
-    if (m_Implementation == eImpl::Advanded) {
-      Result += m_EncoderRDOQ.formatStatsFile(m_TimeStamp.getTicksPerMicroSec());
-    }
-  }
-  Result += fmt::format("UseDctSsd = {}\n", m_UseDctSsd);
-  
-  return Result;
-}
+// Result formatting for experiment logs
+// For SSD estimation tests
+//std::string xAppJPEG::formatResultsFile()
+//{
+//  std::string Result; Result.reserve(xMemory::c_MemSizePageBase);
+//
+//  Result += fmt::format("Quality = {}\n", m_Quality);
+//  Result += fmt::format("Bitrate = {:.3f} kib/s\n", m_Bitrate / 1024);
+//  Result += fmt::format("PSNR-Y = {:10.6f} dB\n", m_AvgPSNR_YUV[0]);
+//  if (m_GatherTime) {
+//    tDurationUS AvgDuration__Encode = tDurationMS((flt64)m_Ticks__Encode * m_InvDurationDenominator);
+//    Result += fmt::format("AvgTime Encode = {:9.2f} us\n", AvgDuration__Encode.count());
+//  }
+//  if (m_PrintDebug) {
+//    if (m_Implementation == eImpl::Advanded) {
+//      Result += m_EncoderRDOQ.formatStatsFile(m_TimeStamp.getTicksPerMicroSec());
+//    }
+//  }
+//  Result += fmt::format("UseDctSsd = {}\n", m_UseDctSsd);
+//  
+//  return Result;
+//}
+// For Beam Search tests
+//std::string xAppJPEG::formatResultsFile()
+//{
+//  std::string Result; Result.reserve(xMemory::c_MemSizePageBase);
+//
+//  Result += fmt::format("Quality = {}\n", m_Quality);
+//  Result += fmt::format("Bitrate = {:.3f} kib/s\n", m_Bitrate / 1024);
+//  Result += fmt::format("PSNR-Y = {:10.6f} dB\n", m_AvgPSNR_YUV[0]);
+//  if (m_GatherTime) {
+//    tDurationUS AvgDuration__Encode = tDurationMS((flt64)m_Ticks__Encode * m_InvDurationDenominator);
+//    Result += fmt::format("AvgTime Encode = {:9.2f} us\n", AvgDuration__Encode.count());
+//  }
+//  if (m_PrintDebug) {
+//    if (m_Implementation == eImpl::Advanded) {
+//      Result += m_EncoderRDOQ.formatStatsFile(m_TimeStamp.getTicksPerMicroSec());
+//    }
+//  }
+//  Result += fmt::format("BeamSearch = {}\n", m_BeamSearch);
+//
+//  if (m_BeamSearch) {
+//    Result += fmt::format("BeamWidth = {}\n", m_BeamWidth);
+//    Result += fmt::format("BeamSteps = {}\n", m_BeamSteps);
+//  }
+//
+//  return Result;
+//}
+// For Greedy Multi-Pass tests
+//std::string xAppJPEG::formatResultsFile()
+//{
+//  std::string Result; Result.reserve(xMemory::c_MemSizePageBase);
+//
+//  Result += fmt::format("Quality = {}\n", m_Quality);
+//  Result += fmt::format("Bitrate = {:.3f} kib/s\n", m_Bitrate / 1024);
+//  Result += fmt::format("PSNR-Y = {:10.6f} dB\n", m_AvgPSNR_YUV[0]);
+//  if (m_GatherTime) {
+//    tDurationUS AvgDuration__Encode = tDurationMS((flt64)m_Ticks__Encode * m_InvDurationDenominator);
+//    Result += fmt::format("AvgTime Encode = {:9.2f} us\n", AvgDuration__Encode.count());
+//  }
+//  if (m_PrintDebug) {
+//    if (m_Implementation == eImpl::Advanded) {
+//      Result += m_EncoderRDOQ.formatStatsFile(m_TimeStamp.getTicksPerMicroSec());
+//    }
+//  }
+//  Result += fmt::format("GreedyMultiPass = {}\n", m_GreedyMultiPass);
+//
+//  if (m_GreedyMultiPass) {
+//    Result += fmt::format("NumOptPassesBlock = {}\n", m_NumOptPassesBlock);
+//  }
+//
+//  return Result;
+//}
 //===============================================================================================================================================================================================================
 
 } //end of namespace PMBB::JPEG
