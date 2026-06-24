@@ -78,7 +78,6 @@ uint64 xDistortionSTD::CalcSSDdct(const int16* restrict Tst, const int16* restri
   }
   //return (SSD + 128) >> 8;
   return SSD;
-  //return SSD >> 8;
 }
 int64 xDistortionSTD::CalcWeightedSD(const uint16* restrict Tst, const uint16* restrict Ref, const uint16* restrict Msk, int32 Area)
 {

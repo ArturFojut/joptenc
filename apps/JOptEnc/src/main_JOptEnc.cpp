@@ -94,14 +94,14 @@ int32 APP_MAIN(int argc, char* argv[], char* /*envp*/[])
   AppJPEG.ceaseMultithreading();
 
   //save results to file
-  std::ofstream file("output.txt", std::ios::app);
+  //std::ofstream file("output.txt", std::ios::app);
 
-  if (file.is_open()) {
-    std::string results = AppJPEG.formatResultsFile();
+  //if (file.is_open()) {
+  //  std::string results = AppJPEG.formatResultsFile();
 
-    file << results;
-    file.close();
-  }
+  //  file << results;
+  //  file.close();
+  //}
 
 
   //printout results

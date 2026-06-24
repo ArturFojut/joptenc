@@ -977,23 +977,14 @@ void xAdvancedEncoder::xOptQuantBLKGreedyMP(int16* OptCoeffScan, const int16* Co
 
     if (RoundBestIdx < 0)
     {
-      //printf("[GMP] No better change found -> stopping at pass %d\n", PassIdx);
       break;
     }
 
     TmpCoeffsScan[RoundBestIdx] = RoundBestCoeff;
     BestCost = RoundBestCost;
 
-
-    //if (RoundBestIdx == LastNonZero && RoundBestCoeff == 0)
-    //{
-    //  LastNonZero = xEntropyCommon::findLastNonZero(TmpCoeffsScan);
-    //  if (LastNonZero == 0) break;
-    //}
-
   }
 
-  //int32 TestBits = m_EntropyEst.EstimateBlock(TmpCoeffsScan, CmpId, HuffTabIdDC, HuffTabIdAC);
   memcpy(OptCoeffScan, TmpCoeffsScan, c_BA * sizeof(int16));
 }
 void xAdvancedEncoder::xOptQuantBLKBeam(int16* OptCoeffScan, const int16* CoeffsScan, const uint16* SamplesOrg, eCmp CmpId, int32 LastDC)
@@ -1211,8 +1202,6 @@ uint64 xAdvancedEncoder::xCalcDistBLKdct(const int16* ScanCoeffs, const int16* C
 
   xScan::InvScan(TmpQuantCoeffs, ScanCoeffs);
   m_QuantMain.InvScale(TmpTransCoeffs, TmpQuantCoeffs, QuantTabId);
-  //TmpTransCoeffs[0] += xTransformConstants::c_InvDcCorr; //DC correction - JPEG requires 128 to be subtracted from every input sample - could be done be DC -= 
-  //xTransform::InvTransformDCT_8x8(TmpSamples, TmpTransCoeffs);
   uint64 SSD = xDistortion::CalcSSDdct(CoeffsTransOrg, TmpTransCoeffs, c_BS, c_BS, c_BS, c_BS);
   return SSD;
 }
